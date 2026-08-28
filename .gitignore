@@ -1,0 +1,48 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Model artifacts
+*.joblib
+*.pkl
+models/
+
+# Secrets and credentials
+.env
+.env.*
+*-key.json
+*credentials*.json
+*service-account*.json
+application_default_credentials.json
+secrets/
+
+# Editors / IDEs
+.idea/
+.vscode/
+.cursor/
+
+# Data (keep gold)
+data/*.pdf
+data/**/*.pdf
+!data/gold/
+!data/gold/**
