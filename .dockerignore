@@ -1,0 +1,6 @@
+.venv
+.git
+.terraform
+**/.tfstate*
+__pycache__
+.cursor
