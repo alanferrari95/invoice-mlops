@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -9,9 +10,11 @@ from typing import Optional
 import joblib
 import pandas as pd
 from fastapi import FastAPI
+from google.cloud import storage
 from pydantic import BaseModel
 
-MODEL_PATH = Path("models") / "model.joblib"
+MODEL_URI = os.getenv("MODEL_URI", "models/model.joblib")
+MODEL_PATH = Path("/tmp/model.joblib") if MODEL_URI.startswith("gs://") else Path(MODEL_URI)
 APP_VERSION = "0.1.0"
 
 FEATURE_NAMES = [
@@ -38,13 +41,32 @@ class ScoreResponse(BaseModel):
     score: Optional[float]
 
 
+# def load_model():
+#     if MODEL_URI.startswith("gs://"):
+#         # gs://bucket/blob — bucket, then blob name after the first /
+#         bucket_name, blob_name = MODEL_URI[len("gs://"):].split("/", 1)
+#         blob = storage.Client().bucket(bucket_name).blob(blob_name)
+#         blob.download_to_filename(str(MODEL_PATH))
+
+#     if not MODEL_PATH.is_file():
+#         raise FileNotFoundError(
+#             f"Model file not found: {MODEL_PATH}. "
+#             "Train a model first (e.g. python src/train/train.py)."
+#         )
+#     return joblib.load(MODEL_PATH)
+
 def load_model():
-    if not MODEL_PATH.is_file():
-        raise FileNotFoundError(
-            f"Model file not found: {MODEL_PATH}. "
-            "Train a model first (e.g. python src/train/train.py)."
-        )
-    return joblib.load(MODEL_PATH)
+    uri = os.environ.get("MODEL_URI", "models/model.joblib")
+    if uri.startswith("gs://"):
+        dest = Path("/tmp/model.joblib")
+        bucket_name, blob_name = uri[len("gs://") :].split("/", 1)
+        storage.Client().bucket(bucket_name).blob(blob_name).download_to_filename(str(dest))
+        path = dest
+    else:
+        path = Path(uri)
+    if not path.is_file():
+        raise FileNotFoundError(f"Model file not found: {path} (MODEL_URI={uri})")
+    return joblib.load(path)
 
 
 @asynccontextmanager
@@ -63,7 +85,11 @@ def health() -> dict:
 
 @app.get("/version")
 def version() -> dict:
-    return {"app_version": APP_VERSION, "model_path": str(MODEL_PATH).replace("\\", "/")}
+    return {
+        "app_version": APP_VERSION,
+        "model_path": str(MODEL_PATH).replace("\\", "/"),
+        "model_uri": MODEL_URI,
+    }
 
 
 @app.post("/score", response_model=ScoreResponse)
