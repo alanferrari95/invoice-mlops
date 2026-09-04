@@ -6,3 +6,8 @@ faker
 fastapi
 uvicorn
 google-cloud-storage
+gcsfs
+pandera
+google-cloud-bigquery
+httpx2
+pytest

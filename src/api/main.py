@@ -2,20 +2,28 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 import joblib
 import pandas as pd
-from fastapi import FastAPI
-from google.cloud import storage
+import pandera as pa
+from fastapi import FastAPI, HTTPException
+from google.cloud import bigquery, storage
+from pandera.errors import SchemaError
 from pydantic import BaseModel
 
 MODEL_URI = os.getenv("MODEL_URI", "models/model.joblib")
 MODEL_PATH = Path("/tmp/model.joblib") if MODEL_URI.startswith("gs://") else Path(MODEL_URI)
 APP_VERSION = "0.1.0"
+PREDICTIONS_TABLE = "invoice-mlops.invoice_mlops.predictions"
+
+logger = logging.getLogger(__name__)
 
 FEATURE_NAMES = [
     "amount",
@@ -25,6 +33,18 @@ FEATURE_NAMES = [
     "vendor_avg_amount",
     "amount_vs_avg_ratio",
 ]
+
+ScoreSchema = pa.DataFrameSchema(
+    {
+        "amount": pa.Column(float, pa.Check.gt(0), coerce=True),
+        "lines_sum": pa.Column(float, pa.Check.gt(0), coerce=True),
+        "hour": pa.Column(int, pa.Check.in_range(0, 23), coerce=True),
+        "is_new_vendor": pa.Column(int, pa.Check.isin([0, 1]), coerce=True),
+        "vendor_avg_amount": pa.Column(float, pa.Check.gt(0), coerce=True),
+        "amount_vs_avg_ratio": pa.Column(float, pa.Check.gt(0), coerce=True),
+    },
+    coerce=True,
+)
 
 
 class ScoreRequest(BaseModel):
@@ -40,20 +60,6 @@ class ScoreResponse(BaseModel):
     risk: int
     score: Optional[float]
 
-
-# def load_model():
-#     if MODEL_URI.startswith("gs://"):
-#         # gs://bucket/blob — bucket, then blob name after the first /
-#         bucket_name, blob_name = MODEL_URI[len("gs://"):].split("/", 1)
-#         blob = storage.Client().bucket(bucket_name).blob(blob_name)
-#         blob.download_to_filename(str(MODEL_PATH))
-
-#     if not MODEL_PATH.is_file():
-#         raise FileNotFoundError(
-#             f"Model file not found: {MODEL_PATH}. "
-#             "Train a model first (e.g. python src/train/train.py)."
-#         )
-#     return joblib.load(MODEL_PATH)
 
 def load_model():
     uri = os.environ.get("MODEL_URI", "models/model.joblib")
@@ -94,10 +100,19 @@ def version() -> dict:
 
 @app.post("/score", response_model=ScoreResponse)
 def score(body: ScoreRequest) -> ScoreResponse:
-    model = app.state.model
     row = {name: getattr(body, name) for name in FEATURE_NAMES}
     X = pd.DataFrame([row], columns=FEATURE_NAMES)
+    try:
+        X = ScoreSchema.validate(X)
+    except SchemaError as err:
+        raise HTTPException(status_code=422, detail=str(err)) from err
+
+    model = app.state.model
+    
+    t0 = time.perf_counter()
     risk = int(model.predict(X)[0])
+    latency_ms = (time.perf_counter() - t0) * 1000.0
+
     if hasattr(model, "predict_proba"):
         proba = model.predict_proba(X)[0]
         # class 1 probability
@@ -108,4 +123,23 @@ def score(body: ScoreRequest) -> ScoreResponse:
             score_val = float(proba[-1])
     else:
         score_val = None
+
+    feat = X.iloc[0]
+    bq_row = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "amount": float(feat["amount"]),
+        "lines_sum": float(feat["lines_sum"]),
+        "hour": int(feat["hour"]),
+        "is_new_vendor": int(feat["is_new_vendor"]),
+        "vendor_avg_amount": float(feat["vendor_avg_amount"]),
+        "amount_vs_avg_ratio": float(feat["amount_vs_avg_ratio"]),
+        "risk": risk,
+        "score": score_val,
+        "model_version": os.getenv("MODEL_VERSION", "0.1.0"),
+        "latency_ms": float(latency_ms),
+    }
+    errors = bigquery.Client().insert_rows_json(PREDICTIONS_TABLE, [bq_row])
+    if errors:
+        logger.error("BigQuery insert_rows_json errors: %s", errors)
+
     return ScoreResponse(risk=risk, score=score_val)
