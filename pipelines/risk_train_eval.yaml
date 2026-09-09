@@ -1,0 +1,123 @@
+# PIPELINE DEFINITION
+# Name: risk-train-eval
+components:
+  comp-evaluate:
+    executorLabel: exec-evaluate
+    inputDefinitions:
+      parameters:
+        min_f1:
+          parameterType: NUMBER_DOUBLE
+        model_dir:
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: STRING
+  comp-train:
+    executorLabel: exec-train
+    inputDefinitions:
+      parameters:
+        data_uri:
+          parameterType: STRING
+        max_depth:
+          parameterType: NUMBER_INTEGER
+        model_dir:
+          parameterType: STRING
+        n_estimators:
+          parameterType: NUMBER_INTEGER
+deploymentSpec:
+  executors:
+    exec-evaluate:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - evaluate
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'google-cloud-storage'\
+          \  &&  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.17.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef evaluate(model_dir: str, min_f1: float) -> str:\n    import json\n\
+          \    from pathlib import Path\n\n    from google.cloud import storage\n\n\
+          \    prefix = model_dir.rstrip(\"/\")\n    rest = prefix[len(\"gs://\")\
+          \ :]\n    bucket_name, _, blob_prefix = rest.partition(\"/\")\n    blob_name\
+          \ = f\"{blob_prefix}/metrics.json\" if blob_prefix else \"metrics.json\"\
+          \n\n    local_path = Path(\"/tmp/metrics.json\")\n    storage.Client().bucket(bucket_name).blob(blob_name).download_to_filename(str(local_path))\n\
+          \    metrics = json.loads(local_path.read_text(encoding=\"utf-8\"))\n  \
+          \  f1 = float(metrics[\"f1\"])\n    if f1 < min_f1:\n        raise RuntimeError(f\"\
+          f1={f1} below min_f1={min_f1}\")\n    return f\"f1={f1}\"\n\n"
+        image: python:3.12-slim
+    exec-train:
+      container:
+        args:
+        - --data-uri
+        - '{{$.inputs.parameters[''data_uri'']}}'
+        - --model-dir
+        - '{{$.inputs.parameters[''model_dir'']}}'
+        - --n-estimators
+        - '{{$.inputs.parameters[''n_estimators'']}}'
+        - --max-depth
+        - '{{$.inputs.parameters[''max_depth'']}}'
+        image: europe-west4-docker.pkg.dev/invoice-mlops/invoice-mlops/train:week4
+pipelineInfo:
+  name: risk-train-eval
+root:
+  dag:
+    tasks:
+      evaluate:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-evaluate
+        dependentTasks:
+        - train
+        inputs:
+          parameters:
+            min_f1:
+              runtimeValue:
+                constant: 0.5
+            model_dir:
+              runtimeValue:
+                constant: gs://invoice-mlops-artifacts/models/pipeline-week7
+        taskInfo:
+          name: evaluate
+      train:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-train
+        inputs:
+          parameters:
+            data_uri:
+              runtimeValue:
+                constant: gs://invoice-mlops-raw/raw/invoices.csv
+            max_depth:
+              runtimeValue:
+                constant: 4.0
+            model_dir:
+              runtimeValue:
+                constant: gs://invoice-mlops-artifacts/models/pipeline-week7
+            n_estimators:
+              runtimeValue:
+                constant: 100.0
+        taskInfo:
+          name: train
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.17.0
