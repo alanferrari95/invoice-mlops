@@ -41,19 +41,48 @@ def evaluate(model_dir: str, min_f1: float) -> str:
     return f"f1={f1}"
 
 
+@dsl.component(base_image="python:3.12-slim", packages_to_install=["google-cloud-pubsub"])
+def notify_if_failed(status: dsl.PipelineTaskFinalStatus, topic: str, min_f1: float):
+    import json
+    from google.cloud import pubsub_v1
+
+    if status.state == "SUCCEEDED":
+        return
+
+    publisher = pubsub_v1.PublisherClient()
+    payload = {
+        "state": status.state,
+        "pipeline_job_resource_name": status.pipeline_job_resource_name,
+        "error_code": status.error_code,
+        "error_message": status.error_message,
+        "min_f1": min_f1,
+    }
+    publisher.publish(topic, json.dumps(payload).encode("utf-8")).result()
+
+
+
 @dsl.pipeline(name="risk-train-eval")
-def risk_train_eval():
-    t = train(
-        data_uri="gs://invoice-mlops-raw/raw/invoices.csv",
-        model_dir="gs://invoice-mlops-artifacts/models/pipeline-week7",
-        n_estimators=100,
-        max_depth=4,
-    )
-    t.set_display_name("train")
-    evaluate(
-        model_dir="gs://invoice-mlops-artifacts/models/pipeline-week7",
-        min_f1=0.5,
-    ).after(t)
+def risk_train_eval(
+    data_uri: str = "gs://invoice-mlops-raw/raw/invoices.csv",
+    model_dir: str = "gs://invoice-mlops-artifacts/models/pipeline-week7",
+    n_estimators: int = 100,
+    max_depth: int = 4,
+    min_f1: float = 0.5,
+    topic: str = "projects/invoice-mlops/topics/invoice-mlops-pipeline-alerts",
+):
+    exit_task = notify_if_failed(topic=topic, min_f1=min_f1)
+    with dsl.ExitHandler(exit_task):
+        t = train(
+            data_uri=data_uri,
+            model_dir=model_dir,
+            n_estimators=n_estimators,
+            max_depth=max_depth,
+        )
+        t.set_display_name("train")
+        evaluate(
+            model_dir=model_dir,
+            min_f1=min_f1,
+        ).after(t)
 
 
 if __name__ == "__main__":

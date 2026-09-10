@@ -1,5 +1,12 @@
 # PIPELINE DEFINITION
 # Name: risk-train-eval
+# Inputs:
+#    data_uri: str [Default: 'gs://invoice-mlops-raw/raw/invoices.csv']
+#    max_depth: int [Default: 4.0]
+#    min_f1: float [Default: 0.5]
+#    model_dir: str [Default: 'gs://invoice-mlops-artifacts/models/pipeline-week7']
+#    n_estimators: int [Default: 100.0]
+#    topic: str [Default: 'projects/invoice-mlops/topics/invoice-mlops-pipeline-alerts']
 components:
   comp-evaluate:
     executorLabel: exec-evaluate
@@ -12,6 +19,64 @@ components:
     outputDefinitions:
       parameters:
         Output:
+          parameterType: STRING
+  comp-exit-handler-1:
+    dag:
+      tasks:
+        evaluate:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-evaluate
+          dependentTasks:
+          - train
+          inputs:
+            parameters:
+              min_f1:
+                componentInputParameter: pipelinechannel--min_f1
+              model_dir:
+                componentInputParameter: pipelinechannel--model_dir
+          taskInfo:
+            name: evaluate
+        train:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-train
+          inputs:
+            parameters:
+              data_uri:
+                componentInputParameter: pipelinechannel--data_uri
+              max_depth:
+                componentInputParameter: pipelinechannel--max_depth
+              model_dir:
+                componentInputParameter: pipelinechannel--model_dir
+              n_estimators:
+                componentInputParameter: pipelinechannel--n_estimators
+          taskInfo:
+            name: train
+    inputDefinitions:
+      parameters:
+        pipelinechannel--data_uri:
+          parameterType: STRING
+        pipelinechannel--max_depth:
+          parameterType: NUMBER_INTEGER
+        pipelinechannel--min_f1:
+          parameterType: NUMBER_DOUBLE
+        pipelinechannel--model_dir:
+          parameterType: STRING
+        pipelinechannel--n_estimators:
+          parameterType: NUMBER_INTEGER
+  comp-notify-if-failed:
+    executorLabel: exec-notify-if-failed
+    inputDefinitions:
+      parameters:
+        min_f1:
+          parameterType: NUMBER_DOUBLE
+        status:
+          isOptional: true
+          parameterType: TASK_FINAL_STATUS
+        topic:
           parameterType: STRING
   comp-train:
     executorLabel: exec-train
@@ -64,6 +129,42 @@ deploymentSpec:
           \  f1 = float(metrics[\"f1\"])\n    if f1 < min_f1:\n        raise RuntimeError(f\"\
           f1={f1} below min_f1={min_f1}\")\n    return f\"f1={f1}\"\n\n"
         image: python:3.12-slim
+    exec-notify-if-failed:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - notify_if_failed
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'google-cloud-pubsub'\
+          \  &&  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.17.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef notify_if_failed(status: dsl.PipelineTaskFinalStatus, topic:\
+          \ str, min_f1: float):\n    import json\n    from google.cloud import pubsub_v1\n\
+          \n    if status.state == \"SUCCEEDED\":\n        return\n\n    publisher\
+          \ = pubsub_v1.PublisherClient()\n    payload = {\n        \"state\": status.state,\n\
+          \        \"pipeline_job_resource_name\": status.pipeline_job_resource_name,\n\
+          \        \"error_code\": status.error_code,\n        \"error_message\":\
+          \ status.error_message,\n        \"min_f1\": min_f1,\n    }\n    publisher.publish(topic,\
+          \ json.dumps(payload).encode(\"utf-8\")).result()\n\n"
+        image: python:3.12-slim
     exec-train:
       container:
         args:
@@ -81,43 +182,68 @@ pipelineInfo:
 root:
   dag:
     tasks:
-      evaluate:
+      exit-handler-1:
+        componentRef:
+          name: comp-exit-handler-1
+        inputs:
+          parameters:
+            pipelinechannel--data_uri:
+              componentInputParameter: data_uri
+            pipelinechannel--max_depth:
+              componentInputParameter: max_depth
+            pipelinechannel--min_f1:
+              componentInputParameter: min_f1
+            pipelinechannel--model_dir:
+              componentInputParameter: model_dir
+            pipelinechannel--n_estimators:
+              componentInputParameter: n_estimators
+        taskInfo:
+          name: exit-handler-1
+      notify-if-failed:
         cachingOptions:
           enableCache: true
         componentRef:
-          name: comp-evaluate
+          name: comp-notify-if-failed
         dependentTasks:
-        - train
+        - exit-handler-1
         inputs:
           parameters:
             min_f1:
-              runtimeValue:
-                constant: 0.5
-            model_dir:
-              runtimeValue:
-                constant: gs://invoice-mlops-artifacts/models/pipeline-week7
+              componentInputParameter: min_f1
+            status:
+              taskFinalStatus:
+                producerTask: exit-handler-1
+            topic:
+              componentInputParameter: topic
         taskInfo:
-          name: evaluate
-      train:
-        cachingOptions:
-          enableCache: true
-        componentRef:
-          name: comp-train
-        inputs:
-          parameters:
-            data_uri:
-              runtimeValue:
-                constant: gs://invoice-mlops-raw/raw/invoices.csv
-            max_depth:
-              runtimeValue:
-                constant: 4.0
-            model_dir:
-              runtimeValue:
-                constant: gs://invoice-mlops-artifacts/models/pipeline-week7
-            n_estimators:
-              runtimeValue:
-                constant: 100.0
-        taskInfo:
-          name: train
+          name: notify-if-failed
+        triggerPolicy:
+          strategy: ALL_UPSTREAM_TASKS_COMPLETED
+  inputDefinitions:
+    parameters:
+      data_uri:
+        defaultValue: gs://invoice-mlops-raw/raw/invoices.csv
+        isOptional: true
+        parameterType: STRING
+      max_depth:
+        defaultValue: 4.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      min_f1:
+        defaultValue: 0.5
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
+      model_dir:
+        defaultValue: gs://invoice-mlops-artifacts/models/pipeline-week7
+        isOptional: true
+        parameterType: STRING
+      n_estimators:
+        defaultValue: 100.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      topic:
+        defaultValue: projects/invoice-mlops/topics/invoice-mlops-pipeline-alerts
+        isOptional: true
+        parameterType: STRING
 schemaVersion: 2.1.0
 sdkVersion: kfp-2.17.0
