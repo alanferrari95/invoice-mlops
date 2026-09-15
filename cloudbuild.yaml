@@ -45,7 +45,7 @@ steps:
       - -c
       - |
         set -euo pipefail
-        pip install google-cloud-aiplatform
+        pip install "google-cloud-aiplatform[pipelines]"
         python pipelines/submit_staging.py
 
 images:
