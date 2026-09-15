@@ -121,13 +121,17 @@ deploymentSpec:
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
           \ *\n\ndef evaluate(model_dir: str, min_f1: float) -> str:\n    import json\n\
           \    from pathlib import Path\n\n    from google.cloud import storage\n\n\
-          \    prefix = model_dir.rstrip(\"/\")\n    rest = prefix[len(\"gs://\")\
-          \ :]\n    bucket_name, _, blob_prefix = rest.partition(\"/\")\n    blob_name\
-          \ = f\"{blob_prefix}/metrics.json\" if blob_prefix else \"metrics.json\"\
-          \n\n    local_path = Path(\"/tmp/metrics.json\")\n    storage.Client().bucket(bucket_name).blob(blob_name).download_to_filename(str(local_path))\n\
+          \    def assert_min_f1(metrics: dict, min_f1_threshold: float) -> str:\n\
+          \        if \"f1\" not in metrics:\n            raise RuntimeError(\"metrics.json\
+          \ missing key 'f1'\")\n        f1 = float(metrics[\"f1\"])\n        if f1\
+          \ < min_f1_threshold:\n            raise RuntimeError(f\"f1={f1} below min_f1={min_f1_threshold}\"\
+          )\n        return f\"f1={f1}\"\n\n    prefix = model_dir.rstrip(\"/\")\n\
+          \    rest = prefix[len(\"gs://\") :]\n    bucket_name, _, blob_prefix =\
+          \ rest.partition(\"/\")\n    blob_name = f\"{blob_prefix}/metrics.json\"\
+          \ if blob_prefix else \"metrics.json\"\n\n    local_path = Path(\"/tmp/metrics.json\"\
+          )\n    storage.Client().bucket(bucket_name).blob(blob_name).download_to_filename(str(local_path))\n\
           \    metrics = json.loads(local_path.read_text(encoding=\"utf-8\"))\n  \
-          \  f1 = float(metrics[\"f1\"])\n    if f1 < min_f1:\n        raise RuntimeError(f\"\
-          f1={f1} below min_f1={min_f1}\")\n    return f\"f1={f1}\"\n\n"
+          \  return assert_min_f1(metrics, min_f1)\n\n"
         image: python:3.12-slim
     exec-notify-if-failed:
       container:
