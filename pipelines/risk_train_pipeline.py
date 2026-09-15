@@ -27,6 +27,14 @@ def evaluate(model_dir: str, min_f1: float) -> str:
 
     from google.cloud import storage
 
+    def assert_min_f1(metrics: dict, min_f1_threshold: float) -> str:
+        if "f1" not in metrics:
+            raise RuntimeError("metrics.json missing key 'f1'")
+        f1 = float(metrics["f1"])
+        if f1 < min_f1_threshold:
+            raise RuntimeError(f"f1={f1} below min_f1={min_f1_threshold}")
+        return f"f1={f1}"
+
     prefix = model_dir.rstrip("/")
     rest = prefix[len("gs://") :]
     bucket_name, _, blob_prefix = rest.partition("/")
@@ -35,10 +43,7 @@ def evaluate(model_dir: str, min_f1: float) -> str:
     local_path = Path("/tmp/metrics.json")
     storage.Client().bucket(bucket_name).blob(blob_name).download_to_filename(str(local_path))
     metrics = json.loads(local_path.read_text(encoding="utf-8"))
-    f1 = float(metrics["f1"])
-    if f1 < min_f1:
-        raise RuntimeError(f"f1={f1} below min_f1={min_f1}")
-    return f"f1={f1}"
+    return assert_min_f1(metrics, min_f1)
 
 
 @dsl.component(base_image="python:3.12-slim", packages_to_install=["google-cloud-pubsub"])
