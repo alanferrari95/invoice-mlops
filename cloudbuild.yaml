@@ -1,20 +1,31 @@
 steps:
   - name: python:3.12-slim
+    id: test-and-compile
     entrypoint: bash
     args:
       - -c
-      - pip install -r requirements.txt pytest && PYTHONPATH=. pytest tests/test_score_schema.py tests/test_score_validation.py -q
+      - |
+        set -euo pipefail
+        pip install -r requirements.txt pytest "kfp==2.17.0"
+        PYTHONPATH=. pytest tests/test_metrics_gate.py tests/test_score_schema.py tests/test_score_validation.py -q
+        python pipelines/risk_train_pipeline.py
+
   - name: gcr.io/cloud-builders/docker
+    id: build-api
     args:
       - build
       - -t
       - europe-west4-docker.pkg.dev/invoice-mlops/invoice-mlops/api:$SHORT_SHA
       - .
+
   - name: gcr.io/cloud-builders/docker
+    id: push-api
     args:
       - push
       - europe-west4-docker.pkg.dev/invoice-mlops/invoice-mlops/api:$SHORT_SHA
+
   - name: gcr.io/cloud-builders/gcloud
+    id: deploy-api
     args:
       - run
       - deploy
@@ -26,6 +37,17 @@ steps:
       - --min-instances=0
       - --port=8080
       - --allow-unauthenticated
+
+  - name: python:3.12-slim
+    id: submit-staging-pipeline
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        pip install google-cloud-aiplatform
+        python pipelines/submit_staging.py
+
 images:
   - europe-west4-docker.pkg.dev/invoice-mlops/invoice-mlops/api:$SHORT_SHA
 options:
