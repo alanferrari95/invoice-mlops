@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,13 +33,14 @@ EPS = 1e-4
 def parse_args(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--reference-uri", default="gs://invoice-mlops-raw/raw/invoices.csv")
-    parser.add_argument("--model-uri", default="models/model.joblib")
+    parser.add_argument("--model-uri", default=os.getenv("MODEL_URI", "models/model.joblib"))
     parser.add_argument("--table", default=PREDICTIONS_TABLE)
     parser.add_argument("--hours", type=int, default=24, help="production window size")
     parser.add_argument("--min-rows", type=int, default=50)
     parser.add_argument("--psi-threshold", type=float, default=0.25)
     parser.add_argument("--ks-pvalue", type=float, default=0.01)
-    parser.add_argument("--topic", default="", help="projects/<p>/topics/<t>; empty = dry run")
+    parser.add_argument("--topic", default=os.getenv("DRIFT_TOPIC", ""),
+                        help="projects/<p>/topics/<t>; empty = dry run")
     return parser.parse_args(argv)
 
 
