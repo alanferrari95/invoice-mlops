@@ -1,7 +1,6 @@
 variable "project_id" {
-  description = "GCP project that hosts everything"
+  description = "GCP project that hosts everything (bucket names derive from it)"
   type        = string
-  default     = "invoice-mlops"
 }
 
 variable "region" {
@@ -11,8 +10,8 @@ variable "region" {
 }
 
 variable "github_owner" {
-  type    = string
-  default = "alanferrari95"
+  description = "Owner of the GitHub repo connected to Cloud Build"
+  type        = string
 }
 
 variable "github_repo" {
@@ -20,14 +19,8 @@ variable "github_repo" {
   default = "invoice-mlops"
 }
 
-variable "risk_model_id" {
-  description = "Model Registry id of risk-classifier (created by the first pipeline upload in week 6)"
-  type        = string
-  default     = "429981614227849216"
-}
-
 variable "api_min_instances" {
-  description = "0 keeps cost near zero; 1 removes cold starts (about 10 EUR/month for 1 vCPU idle)"
+  description = "0 keeps cost near zero; 1 removes cold starts but bills an idle instance"
   type        = number
   default     = 0
 }

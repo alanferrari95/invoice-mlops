@@ -1,0 +1,6 @@
+# cp terraform.tfvars.example terraform.tfvars   (terraform.tfvars is gitignored)
+project_id   = "my-invoice-mlops"
+github_owner = "my-github-user"
+# region           = "europe-west4"
+# scheduler_region = "europe-west4"
+# api_min_instances = 0

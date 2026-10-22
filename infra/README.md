@@ -1,36 +1,44 @@
 # infra/
 
-Terraform for the whole project. State in GCS (`<project>-tfstate`, versioned).
+Terraform for the whole GCP side. Works in any project: everything is derived from `project_id`. State lives in a versioned GCS bucket (`<project_id>-tfstate`).
 
 | File | What |
 |---|---|
 | `versions.tf` | Terraform/provider versions, GCS backend |
-| `variables.tf` | project, region, GitHub repo, Registry model id, API min instances |
+| `variables.tf` | project, region, GitHub repo, API min instances, Scheduler region |
 | `main.tf` | APIs, buckets, Artifact Registry, work service account |
 | `data.tf` | BigQuery dataset, `invoices`, `predictions`, `extractions` |
 | `serving.tf` | Cloud Run service (identity, scaling, public access) |
 | `monitoring.tf` | Pub/Sub topics, drift + launcher Cloud Run Jobs, Cloud Scheduler |
 | `iam.tf` | least-privilege grants for the four service accounts |
 | `cicd.tf` | Cloud Build triggers (PR, main, model promotion) |
-| `imports.tf` | resources created by hand before Terraform covered them |
+| `examples/` | imports for the original project, where some resources predate Terraform |
 
-## Existing project (`invoice-mlops`)
+## Bring it up in your own project
 
 ```bash
-terraform -chdir=infra init -backend-config=bucket=invoice-mlops-tfstate
-terraform -chdir=infra plan      # imports + the new resources; nothing is destroyed
+gcloud auth login && gcloud auth application-default login   # no service-account keys
+./infra/bootstrap.sh <project_id>                              # state bucket, once
+cp infra/terraform.tfvars.example infra/terraform.tfvars       # set project_id, github_owner
+terraform -chdir=infra init -backend-config=bucket=<project_id>-tfstate
+terraform -chdir=infra plan
 terraform -chdir=infra apply
 ```
 
-## Empty project
+Then, once:
 
-```bash
-./infra/bootstrap.sh <project_id>                 # state bucket
-rm infra/imports.tf                               # nothing to import
-terraform -chdir=infra init -backend-config=bucket=<project_id>-tfstate
-terraform -chdir=infra apply -var=project_id=<project_id>
-```
+1. Connect the GitHub repo to Cloud Build (GitHub App, one click in the console; 1st-gen triggers cannot do this from Terraform).
+2. Build the images: `gcloud builds submit --config=cloudbuild-images.yaml --substitutions=_TAG=$(git rev-parse --short HEAD)`.
+3. Seed BigQuery: `./scripts/seed_bigquery.sh`.
+4. First models: `python -m src.launcher --trigger manual` (risk model → Registry `production`) and `python pipelines/submit_extract_eval.py --prompt-version v2` (prompt → Registry `production`).
+5. Merge or push to `main`: the build deploys the API as a 20% canary pinned to those two versions; `./scripts/promote.sh` sends it 100%.
 
-Then connect the GitHub repo to Cloud Build (GitHub App, one click in the console; it cannot be done from Terraform for 1st-gen triggers), push to `main` once so images exist, run the risk pipeline once with alias `production` and the extract pipeline once, and the service is complete. The Registry model id variable must point at the `risk-classifier` model the first upload creates.
+Until step 4 has run, merges build and test normally and skip the deploy with a message.
 
-Not in Terraform on purpose: the state bucket (chicken-and-egg), the billing budget (billing-account scope, created in the console in week 0), and what Cloud Build owns at runtime (images, traffic split, Registry versions).
+## Cost controls built in
+
+`min-instances=0` on Cloud Run, Cloud Run Jobs instead of always-on services, no Vertex AI Endpoints (Cloud Run serves the model), CPU-only pipeline components. Two Cloud Scheduler jobs fit in the free tier (3 per billing account). Set a billing budget with alerts in the console; it is billing-account scoped, so it is not in this config.
+
+## Not in Terraform on purpose
+
+The state bucket (chicken-and-egg), the billing budget, and what Cloud Build owns at runtime: images, the traffic split, Registry versions.

@@ -9,7 +9,7 @@
 
 locals {
   monitor_image  = "${local.image_repo}/monitor:latest"
-  registry_model = "projects/${local.project}/locations/${local.region}/models/${local.risk_model_id}"
+  registry_model = "projects/${local.project}/locations/${local.region}/models/risk-classifier"
 }
 
 resource "google_project_service" "scheduler" {
