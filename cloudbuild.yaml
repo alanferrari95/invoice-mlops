@@ -70,7 +70,6 @@ steps:
           --update-env-vars=REGISTRY_MODEL=${_REGISTRY_MODEL},MODEL_VERSION_ID=$$VERSION,EXTRACTOR_REGISTRY_MODEL=${_EXTRACTOR_MODEL},EXTRACTOR_VERSION_ID=$$EXTRACTOR_VERSION \
           --min-instances=0 \
           --port=8080 \
-          --allow-unauthenticated \
           --no-traffic \
           --tag=sha-$SHORT_SHA
 

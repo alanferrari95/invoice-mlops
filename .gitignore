@@ -15,7 +15,6 @@ __pycache__/
 .terraform/
 *.tfstate
 *.tfstate.*
-.terraform.lock.hcl
 crash.log
 override.tf
 override.tf.json

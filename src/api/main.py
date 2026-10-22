@@ -62,6 +62,9 @@ class ScoreRequest(BaseModel):
 class ScoreResponse(BaseModel):
     risk: int
     score: Optional[float]
+    # With ?explain=true: SHAP value per feature in log-odds; base + sum = model margin.
+    explanation: Optional[dict[str, float]] = None
+    base_value: Optional[float] = None
 
 
 @dataclass
@@ -146,6 +149,14 @@ def make_extractor():
                            prompt_version=prompt_version_from_env())
 
 
+def shap_contributions(model, X: pd.DataFrame) -> tuple[dict[str, float], float]:
+    """Exact TreeSHAP values from XGBoost itself (pred_contribs), no extra dependency."""
+    import xgboost as xgb
+
+    contribs = model.get_booster().predict(xgb.DMatrix(X), pred_contribs=True)[0]
+    return {name: round(float(v), 4) for name, v in zip(FEATURE_NAMES, contribs[:-1])}, float(contribs[-1])
+
+
 def _positive_proba(model, X: pd.DataFrame) -> Optional[float]:
     if not hasattr(model, "predict_proba"):
         return None
@@ -225,7 +236,7 @@ def create_app(
         return result.to_response()
 
     @app.post("/score", response_model=ScoreResponse)
-    def score(body: ScoreRequest, request: Request) -> ScoreResponse:
+    def score(body: ScoreRequest, request: Request, explain: bool = False) -> ScoreResponse:
         row = {name: getattr(body, name) for name in FEATURE_NAMES}
         X = pd.DataFrame([row], columns=FEATURE_NAMES)
         try:
@@ -258,6 +269,9 @@ def create_app(
         except Exception:  # logging must never take the prediction down
             logger.exception("Failed to log prediction to %s", PREDICTIONS_TABLE)
 
+        if explain and hasattr(loaded.model, "get_booster"):
+            contributions, base = shap_contributions(loaded.model, X)
+            return ScoreResponse(risk=risk, score=score_val, explanation=contributions, base_value=round(base, 4))
         return ScoreResponse(risk=risk, score=score_val)
 
     return app
