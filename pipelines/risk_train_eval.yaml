@@ -9,7 +9,7 @@
 #    n_estimators: int [Default: 100.0]
 #    project: str [Default: 'invoice-mlops']
 #    promoted_topic: str [Default: 'projects/invoice-mlops/topics/invoice-mlops-model-promoted']
-#    registry_model: str [Default: 'projects/invoice-mlops/locations/europe-west4/models/429981614227849216']
+#    registry_model: str [Default: 'projects/invoice-mlops/locations/europe-west4/models/risk-classifier']
 #    serving_image: str [Default: 'europe-docker.pkg.dev/vertex-ai/prediction/xgboost-cpu.2-1:latest']
 #    source_table: str [Default: 'invoice-mlops.invoice_mlops.invoices']
 #    topic: str [Default: 'projects/invoice-mlops/topics/invoice-mlops-pipeline-alerts']
@@ -722,7 +722,7 @@ root:
         isOptional: true
         parameterType: STRING
       registry_model:
-        defaultValue: projects/invoice-mlops/locations/europe-west4/models/429981614227849216
+        defaultValue: projects/invoice-mlops/locations/europe-west4/models/risk-classifier
         isOptional: true
         parameterType: STRING
       serving_image:

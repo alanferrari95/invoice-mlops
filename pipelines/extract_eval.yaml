@@ -307,11 +307,11 @@ deploymentSpec:
           , str), (\"micro_f1\", float)]):\n    import json\n    from collections\
           \ import namedtuple\n    from pathlib import Path\n\n    from src import\
           \ registry\n    from src.eval.evaluate_extract import evaluate\n    from\
-          \ src.eval.extract_metrics import decide_prompt\n    from src.extract.gemini\
-          \ import GeminiExtractor, make_client\n\n    extractor = GeminiExtractor(make_client(),\
-          \ model=gemini_model, prompt_version=prompt_version)\n    result = evaluate(extractor,\
-          \ Path(gold.path))\n    Path(report.path).mkdir(parents=True, exist_ok=True)\n\
-          \    (Path(report.path) / \"report.json\").write_text(json.dumps(result,\
+          \ src.eval.extract_metrics import decide_prompt\n    from src.extract.extractor\
+          \ import Extractor, make_backend\n\n    extractor = Extractor(make_backend(\"\
+          vertex\", model=gemini_model), prompt_version=prompt_version)\n    result\
+          \ = evaluate(extractor, Path(gold.path), price_per_token=True)\n    Path(report.path).mkdir(parents=True,\
+          \ exist_ok=True)\n    (Path(report.path) / \"report.json\").write_text(json.dumps(result,\
           \ indent=2), encoding=\"utf-8\")\n\n    micro = result[\"report\"][\"micro\"\
           ]\n    for name, values in result[\"report\"][\"fields\"].items():\n   \
           \     metrics.log_metric(f\"{name}_precision\", values[\"precision\"])\n\
@@ -389,7 +389,7 @@ deploymentSpec:
           \ str,\n    gemini_model: str,\n    registry_model: str,\n    alias: str,\n\
           \    serving_image: str,\n    micro_f1: float,\n    reason: str,\n    pipeline_job:\
           \ str,\n    bundle: dsl.Output[dsl.Artifact],\n) -> str:\n    import shutil\n\
-          \    from pathlib import Path\n\n    from src.extract.gemini import PROMPTS_DIR\n\
+          \    from pathlib import Path\n\n    from src.extract.extractor import PROMPTS_DIR\n\
           \    from src.registry import register_version\n\n    out = Path(bundle.path)\n\
           \    out.mkdir(parents=True, exist_ok=True)\n    shutil.copy(PROMPTS_DIR\
           \ / f\"{prompt_version}.txt\", out / \"prompt.txt\")\n    shutil.copy(Path(report.path)\

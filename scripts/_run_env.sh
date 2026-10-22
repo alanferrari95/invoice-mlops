@@ -1,5 +1,5 @@
 # Shared settings for the release scripts. Override with env vars.
-PROJECT="${PROJECT:-invoice-mlops}"
+PROJECT="${PROJECT:-${GOOGLE_CLOUD_PROJECT:-$(gcloud config get-value project 2>/dev/null)}}"
 REGION="${REGION:-europe-west4}"
 SERVICE="${SERVICE:-invoice-mlops-api}"
 

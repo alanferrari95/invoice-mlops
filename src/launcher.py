@@ -16,12 +16,14 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Protocol
 
-PROJECT = "invoice-mlops"
-LOCATION = "europe-west4"
+from src import settings
+
+PROJECT = settings.PROJECT
+LOCATION = settings.REGION
 PIPELINE = "risk-train-eval"
-TEMPLATE_URI = "gs://invoice-mlops-artifacts/pipelines/risk_train_eval.yaml"
-PIPELINE_ROOT = "gs://invoice-mlops-artifacts/pipeline-root"
-SERVICE_ACCOUNT = f"invoice-mlops-work@{PROJECT}.iam.gserviceaccount.com"
+TEMPLATE_URI = f"{settings.TEMPLATES}/risk_train_eval.yaml"
+PIPELINE_ROOT = settings.PIPELINE_ROOT
+SERVICE_ACCOUNT = settings.WORK_SA
 ACTIVE_STATES = {"PIPELINE_STATE_QUEUED", "PIPELINE_STATE_PENDING", "PIPELINE_STATE_RUNNING"}
 TRIGGERS = ("schedule", "drift", "manual")
 

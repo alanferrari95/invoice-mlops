@@ -15,11 +15,11 @@ from typing import NamedTuple
 
 from kfp import compiler, dsl
 
-PROJECT = "invoice-mlops"
-REGION = "europe-west4"
-PIPELINE_IMAGE = os.getenv(
-    "PIPELINE_IMAGE", f"{REGION}-docker.pkg.dev/{PROJECT}/invoice-mlops/train:latest"
-)
+from src import settings
+
+PROJECT = settings.PROJECT
+REGION = settings.REGION
+PIPELINE_IMAGE = os.getenv("PIPELINE_IMAGE", f"{settings.IMAGE_REPO}/train:latest")
 OUTPUT = os.getenv("PIPELINE_YAML", "pipelines/risk_train_eval.yaml")
 
 
@@ -165,17 +165,17 @@ def notify_if_failed(status: dsl.PipelineTaskFinalStatus, topic: str):
 @dsl.pipeline(name="risk-train-eval")
 def risk_train_eval(
     project: str = PROJECT,
-    source_table: str = f"{PROJECT}.invoice_mlops.invoices",
-    gold_uri: str = "gs://invoice-mlops-raw/gold/risk_gold.csv",
+    source_table: str = settings.INVOICES_TABLE,
+    gold_uri: str = f"gs://{settings.RAW_BUCKET}/gold/risk_gold.csv",
     n_estimators: int = 100,
     max_depth: int = 4,
     min_f1: float = 0.75,
     max_regression: float = 0.02,
-    registry_model: str = f"projects/{PROJECT}/locations/{REGION}/models/429981614227849216",
+    registry_model: str = settings.RISK_MODEL,
     alias: str = "production",
     serving_image: str = "europe-docker.pkg.dev/vertex-ai/prediction/xgboost-cpu.2-1:latest",
-    topic: str = f"projects/{PROJECT}/topics/invoice-mlops-pipeline-alerts",
-    promoted_topic: str = f"projects/{PROJECT}/topics/invoice-mlops-model-promoted",
+    topic: str = settings.PIPELINE_ALERTS_TOPIC,
+    promoted_topic: str = settings.MODEL_PROMOTED_TOPIC,
 ):
     exit_task = notify_if_failed(topic=topic)
     with dsl.ExitHandler(exit_task, name="train-eval-register"):
