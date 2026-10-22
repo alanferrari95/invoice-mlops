@@ -11,3 +11,6 @@ pandera
 google-cloud-bigquery
 httpx2
 pytest
+scipy
+google-cloud-pubsub
+db-dtypes

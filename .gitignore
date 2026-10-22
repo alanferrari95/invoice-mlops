@@ -46,3 +46,6 @@ data/*.pdf
 data/**/*.pdf
 !data/gold/
 !data/gold/**
+
+# Personal study plan (not part of the project)
+/MLOps_GCP_Path_AlanCruzFerrari.pdf
