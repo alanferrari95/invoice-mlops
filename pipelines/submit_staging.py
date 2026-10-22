@@ -21,7 +21,7 @@ job = aiplatform.PipelineJob(
     template_path=TEMPLATE,
     pipeline_root=PIPELINE_ROOT,
     parameter_values={"alias": "staging"},
-    labels={"trigger": "merge", "commit": os.getenv("SHORT_SHA", "local").lower()},
+    labels={"pipeline": "risk-train-eval", "trigger": "merge", "commit": os.getenv("SHORT_SHA", "local").lower()},
     enable_caching=True,
 )
 job.submit(service_account=RUNTIME_SA)
