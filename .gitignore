@@ -29,6 +29,7 @@ models/
 # Secrets and credentials
 .env
 .env.*
+!.env.example
 *-key.json
 *credentials*.json
 *service-account*.json
@@ -48,3 +49,7 @@ data/**/*.pdf
 
 # Personal study plan (not part of the project)
 /MLOps_GCP_Path_AlanCruzFerrari.pdf
+
+# Terraform variables (project ids, owner)
+*.tfvars
+!*.tfvars.example
