@@ -11,7 +11,7 @@ from src.monitoring import drift
 def wired(monkeypatch, invoices, tiny_model):
     calls = {"published": [], "retrained": 0, "versions": []}
 
-    def production(table, hours, model_version=None):
+    def production(table, minutes, model_version=None):
         calls["versions"].append(model_version)
         return calls["prod"]
 

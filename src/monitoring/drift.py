@@ -42,7 +42,8 @@ def parse_args(argv=None):
                         help="projects/<p>/locations/<l>/models/<id>; score with the serving model")
     parser.add_argument("--model-alias", default=os.getenv("MODEL_ALIAS", "production"))
     parser.add_argument("--table", default=PREDICTIONS_TABLE)
-    parser.add_argument("--hours", type=int, default=24, help="production window size")
+    parser.add_argument("--window-minutes", type=int, default=24 * 60,
+                        help="production window: predictions logged in the last N minutes")
     parser.add_argument("--min-rows", type=int, default=50)
     parser.add_argument("--psi-threshold", type=float, default=0.25)
     parser.add_argument("--ks-pvalue", type=float, default=0.01)
@@ -122,10 +123,10 @@ def resolve_model(args) -> tuple[str, str | None]:
     return version.model_uri, version.label
 
 
-def load_production(table: str, hours: int, model_version: str | None = None) -> pd.DataFrame:
+def load_production(table: str, minutes: int, model_version: str | None = None) -> pd.DataFrame:
     from google.cloud import bigquery
 
-    params = [bigquery.ScalarQueryParameter("hours", "INT64", hours)]
+    params = [bigquery.ScalarQueryParameter("minutes", "INT64", minutes)]
     version_filter = ""
     if model_version:
         version_filter = "AND model_version = @model_version"
@@ -133,7 +134,7 @@ def load_production(table: str, hours: int, model_version: str | None = None) ->
     query = f"""
         SELECT {", ".join(FEATURE_NAMES)}, score
         FROM `{table}`
-        WHERE ts >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @hours HOUR) {version_filter}
+        WHERE ts >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @minutes MINUTE) {version_filter}
     """
     config = bigquery.QueryJobConfig(query_parameters=params)
     return bigquery.Client().query(query, job_config=config).to_dataframe()
@@ -156,10 +157,10 @@ def publish(topic: str, payload: dict) -> str:
 def main(argv=None) -> int:
     args = parse_args(argv)
     model_uri, model_version = resolve_model(args)
-    prod = load_production(args.table, args.hours, model_version)
+    prod = load_production(args.table, args.window_minutes, model_version)
     base = {
         "checked_at": datetime.now(timezone.utc).isoformat(),
-        "window_hours": args.hours,
+        "window_minutes": args.window_minutes,
         "table": args.table,
         "model_version": model_version,
     }
