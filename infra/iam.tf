@@ -38,8 +38,8 @@ resource "google_service_account" "build" {
 resource "google_project_iam_member" "build" {
   for_each = toset([
     "roles/logging.logWriter",
-    "roles/run.developer",    # deploy revisions, move traffic, update jobs (not IAM)
-    "roles/aiplatform.user",  # submit the staging pipeline, read Registry versions
+    "roles/run.developer",   # deploy revisions, move traffic, update jobs (not IAM)
+    "roles/aiplatform.user", # submit the staging pipeline, read Registry versions
   ])
   project = var.project_id
   role    = each.value
