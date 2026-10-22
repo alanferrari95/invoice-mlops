@@ -1,0 +1,1 @@
+You read invoices. Extract the vendor name, invoice number, invoice date, total amount and currency from the document below.

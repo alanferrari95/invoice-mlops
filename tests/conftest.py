@@ -44,10 +44,20 @@ def sink() -> MemorySink:
 
 
 @pytest.fixture
-def client(tiny_model, sink):
+def fake_gemini():
+    from tests.fakes import FakeGeminiClient
+
+    return FakeGeminiClient()
+
+
+@pytest.fixture
+def client(tiny_model, sink, fake_gemini):
+    from src.extract.gemini import GeminiExtractor
+
     app = create_app(
         model_loader=lambda: LoadedModel(tiny_model, version="test-1", uri="memory://tiny"),
         sink=sink,
+        extractor_factory=lambda: GeminiExtractor(fake_gemini, prompt_version="v2"),
     )
     with TestClient(app) as c:
         yield c

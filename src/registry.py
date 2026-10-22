@@ -8,7 +8,7 @@ only run inside the pipeline image.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 ModelFetch = Callable[[str], Optional[dict]]
@@ -21,6 +21,7 @@ class RegistryVersion:
     model: str  # projects/.../models/<id>
     version_id: str
     artifact_uri: str
+    labels: dict = field(default_factory=dict)
 
     @property
     def label(self) -> str:
@@ -58,7 +59,21 @@ def resolve(model: str, ref: str, fetch: ModelFetch = _authorized_get) -> Option
     body = fetch(url)
     if body is None:
         return None
-    return RegistryVersion(model=model, version_id=str(body["versionId"]), artifact_uri=body["artifactUri"])
+    return RegistryVersion(
+        model=model,
+        version_id=str(body["versionId"]),
+        artifact_uri=body.get("artifactUri", ""),
+        labels=body.get("labels", {}),
+    )
+
+
+def model_exists(model: str, fetch: ModelFetch = _authorized_get) -> bool:
+    return fetch(f"https://{location_of(model)}-aiplatform.googleapis.com/v1/{model}") is not None
+
+
+def label_value(value: str) -> str:
+    """Vertex label values: lowercase letters, digits, '_' and '-', at most 63 chars."""
+    return re.sub(r"[^a-z0-9_-]", "-", str(value).lower())[:63]
 
 
 def register_version(
@@ -68,26 +83,35 @@ def register_version(
     serving_image: str,
     description: str,
     labels: Optional[dict] = None,
+    display_name: Optional[str] = None,
 ) -> RegistryVersion:
-    """Upload artifact_uri as a new version of `model` and move `alias` onto it."""
+    """Upload artifact_uri as a new version of `model` and move `alias` onto it.
+
+    If `model` does not exist yet, it is created with the id at the end of its resource
+    name (e.g. .../models/invoice-extractor) and this upload becomes version 1.
+    """
     from google.cloud import aiplatform
 
     project = model.split("/")[1]
     location = location_of(model)
+    model_id = model.rsplit("/", 1)[1]
     aiplatform.init(project=project, location=location)
 
-    previous = resolve(model, alias)
+    exists = model_exists(model)
+    previous = resolve(model, alias) if exists else None
+    target = {"parent_model": model} if exists else {"model_id": model_id, "display_name": display_name or model_id}
     uploaded = aiplatform.Model.upload(
-        parent_model=model,
+        **target,
         artifact_uri=artifact_uri,
         serving_container_image_uri=serving_image,
         is_default_version=True,
         version_description=description,
-        labels=labels or {},
+        labels={k: label_value(v) for k, v in (labels or {}).items()},
         sync=True,
     )
     registry = aiplatform.models.ModelRegistry(model=model)
     if previous is not None and previous.version_id != uploaded.version_id:
         registry.remove_version_aliases(target_aliases=[alias], version=previous.version_id)
     registry.add_version_aliases(new_aliases=[alias], version=uploaded.version_id)
-    return RegistryVersion(model=model, version_id=str(uploaded.version_id), artifact_uri=artifact_uri)
+    return RegistryVersion(model=model, version_id=str(uploaded.version_id), artifact_uri=artifact_uri,
+                           labels=labels or {})

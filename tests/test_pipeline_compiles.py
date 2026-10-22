@@ -24,3 +24,16 @@ def test_pipeline_compiles_with_gate_and_registry(tmp_path):
 
     params = spec["root"]["inputDefinitions"]["parameters"]
     assert {"min_f1", "max_regression", "registry_model", "alias", "gold_uri", "source_table"} <= set(params)
+
+
+def test_extract_pipeline_compiles_with_prompt_gate(tmp_path):
+    from pipelines.extract_eval_pipeline import extract_eval
+
+    out = tmp_path / "e.yaml"
+    compiler.Compiler().compile(extract_eval, str(out))
+    spec = yaml.safe_load(out.read_text())
+    assert {"evaluate-extract", "importer", "condition-branches-1"} <= set(_tasks(spec))
+    executors = spec["deploymentSpec"]["executors"]
+    assert {"exec-register-prompt", "exec-notify-prompt-rejected"} <= set(executors)
+    params = spec["root"]["inputDefinitions"]["parameters"]
+    assert {"prompt_version", "min_precision", "min_recall", "max_regression"} <= set(params)

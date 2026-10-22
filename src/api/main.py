@@ -1,4 +1,4 @@
-"""FastAPI scoring service for invoice review risk."""
+"""invoice-mlops API: /score (Engine A, risk model) and /extract (Engine B, Gemini)."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from typing import Callable, Optional, Protocol
 import joblib
 import pandas as pd
 import pandera.pandas as pa
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from pandera.errors import SchemaError
 from pydantic import BaseModel
 
@@ -23,6 +23,8 @@ from src.registry import ModelFetch
 
 APP_VERSION = "0.3.0"
 PREDICTIONS_TABLE = os.getenv("PREDICTIONS_TABLE", "invoice-mlops.invoice_mlops.predictions")
+EXTRACTIONS_TABLE = os.getenv("EXTRACTIONS_TABLE", "invoice-mlops.invoice_mlops.extractions")
+MAX_PDF_BYTES = 5 * 1024 * 1024
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +125,27 @@ def load_model(fetch: Optional[ModelFetch] = None) -> LoadedModel:
     return load_model_from_uri(uri, os.getenv("MODEL_VERSION", "unversioned"))
 
 
+def prompt_version_from_env(fetch: Optional[ModelFetch] = None) -> str:
+    """Prompt version for /extract. In production it comes from the `invoice-extractor` entry
+    of the Model Registry (the version the extraction gate promoted, label prompt_version);
+    locally from PROMPT_VERSION."""
+    registry_model = os.getenv("EXTRACTOR_REGISTRY_MODEL")
+    if registry_model:
+        ref = os.getenv("EXTRACTOR_VERSION_ID") or "production"
+        version = registry.resolve(registry_model, ref, **({"fetch": fetch} if fetch else {}))
+        if version is None or "prompt_version" not in version.labels:
+            raise RuntimeError(f"No prompt version for {registry_model}@{ref}")
+        return version.labels["prompt_version"]
+    return os.getenv("PROMPT_VERSION", "v2")
+
+
+def make_extractor():
+    from src.extract.gemini import GeminiExtractor, make_client
+
+    return GeminiExtractor(make_client(), model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
+                           prompt_version=prompt_version_from_env())
+
+
 def _positive_proba(model, X: pd.DataFrame) -> Optional[float]:
     if not hasattr(model, "predict_proba"):
         return None
@@ -134,13 +157,15 @@ def _positive_proba(model, X: pd.DataFrame) -> Optional[float]:
 def create_app(
     model_loader: Callable[[], LoadedModel] = load_model,
     sink: Optional[RowSink] = None,
+    extractor_factory: Callable[[], object] = make_extractor,
 ) -> FastAPI:
-    """Build the app. Tests inject a fake loader and sink; production uses GCS/BigQuery."""
+    """Build the app. Tests inject fakes; production uses the Registry, BigQuery and Gemini."""
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.loaded = model_loader()
         app.state.sink = sink if sink is not None else BigQuerySink()
+        app.state.extractor = extractor_factory()
         yield
 
     app = FastAPI(lifespan=lifespan)
@@ -156,8 +181,48 @@ def create_app(
             "app_version": APP_VERSION,
             "model_version": loaded.version,
             "model_uri": loaded.uri,
+            "extractor_model": getattr(request.app.state.extractor, "model", None),
+            "prompt_version": getattr(request.app.state.extractor, "prompt_version", None),
             "revision": os.getenv("K_REVISION", "local"),
         }
+
+    @app.post("/extract")
+    async def extract(request: Request, file: UploadFile = File(...)) -> dict:
+        pdf = await file.read()
+        if not pdf.startswith(b"%PDF"):
+            raise HTTPException(status_code=415, detail="expected a PDF document")
+        if len(pdf) > MAX_PDF_BYTES:
+            raise HTTPException(status_code=413, detail=f"PDF larger than {MAX_PDF_BYTES} bytes")
+
+        extractor = request.app.state.extractor
+        t0 = time.perf_counter()
+        try:
+            result = extractor.extract(pdf)
+        except Exception as err:
+            logger.exception("Extraction failed")
+            raise HTTPException(status_code=502, detail=f"extraction failed: {type(err).__name__}") from err
+        total_ms = (time.perf_counter() - t0) * 1000.0
+
+        # Only metadata is logged: hash, counts, tokens, latency. Never the document or its fields.
+        row = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "doc_sha256": result.doc_sha256,
+            "model": result.model,
+            "prompt_version": result.prompt_version,
+            "pages_total": result.pages_total,
+            "pages_sent": len(result.pages_kept),
+            "prompt_tokens": result.usage.prompt_tokens,
+            "output_tokens": result.usage.output_tokens,
+            "thoughts_tokens": result.usage.thoughts_tokens,
+            "llm_latency_ms": float(result.latency_ms),
+            "total_latency_ms": float(total_ms),
+            "fields_found": sum(v is not None for v in result.fields.values()),
+        }
+        try:
+            request.app.state.sink.insert(EXTRACTIONS_TABLE, [row])
+        except Exception:
+            logger.exception("Failed to log extraction to %s", EXTRACTIONS_TABLE)
+        return result.to_response()
 
     @app.post("/score", response_model=ScoreResponse)
     def score(body: ScoreRequest, request: Request) -> ScoreResponse:
