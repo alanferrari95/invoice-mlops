@@ -37,6 +37,15 @@ steps:
       - --min-instances=0
       - --port=8080
       - --allow-unauthenticated
+      - --no-traffic
+      - --tag=sha-$SHORT_SHA
+
+  # The new revision starts at 0%; this moves it to a 20% canary next to the stable one.
+  # Promote with scripts/promote.sh, roll back with scripts/rollback.sh (no rebuild).
+  - name: gcr.io/cloud-builders/gcloud
+    id: canary-20
+    entrypoint: bash
+    args: [scripts/canary.sh]
 
   - name: python:3.12-slim
     id: submit-staging-pipeline
