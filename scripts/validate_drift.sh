@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Week 11 validation, run by hand: normal traffic must NOT alert, deliberately skewed
 # traffic MUST alert and re-trigger the training pipeline. Output goes to docs/evidence.md.
-#   ./scripts/validate_drift.sh
+#   URL=https://<tag>---invoice-mlops-api-<hash>.europe-west4.run.app ./scripts/validate_drift.sh
+#
+# The drift job only compares rows logged by the production model version. During an 80/20
+# canary most requests would hit the other revision, so point URL at the tag URL of the
+# revision that serves the production version (or run it after promote.sh).
 set -euo pipefail
 source "$(dirname "$0")/_run_env.sh"
 URL="${URL:-$(run_describe --format='value(status.url)')}"
