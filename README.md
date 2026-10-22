@@ -1,102 +1,121 @@
 # invoice-mlops
 
-End-to-end MLOps platform on Google Cloud for invoice processing: a **risk-scoring model** that decides whether an invoice needs manual review (Engine A), and an **LLM field-extraction module** (Engine B, in progress). The focus is the ML lifecycle around the model rather than the model itself: validated inputs, a metric-gated training pipeline, CI/CD, canary releases with rollback, and prediction logging for monitoring.
+End-to-end MLOps on Google Cloud around two engines that process invoices:
 
-Everything runs in `europe-west4` and the infrastructure is managed with Terraform from day 0.
+- **Engine A, risk model:** an XGBoost classifier that decides whether an invoice needs manual review. It has the full lifecycle: features in BigQuery, a Vertex AI pipeline with a gold-set gate, Model Registry, CI/CD/CT with Cloud Build, canary releases on Cloud Run with rollback, and a daily drift job that retrains it.
+- **Engine B, field extraction:** an LLM reads the invoice (vendor, number, date, total, currency) with structured output, after a page filter that drops pages the LLM does not need. Each prompt version is scored per field against a gold set, and a pipeline gate rejects versions that are worse.
+
+The point of the project is the lifecycle around the models, not the models. All data is synthetic. The infrastructure is in Terraform, and nothing uses a service-account key.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    subgraph CI["CI/CD · Cloud Build"]
-        PR["Pull request<br/>unit tests + pipeline compile"]
-        MAIN["Merge to main<br/>test → build → push → deploy"]
+    subgraph CI["Cloud Build"]
+        PR["PR: tests + compile pipelines"]
+        MAIN["merge: build, push,<br/>20% canary, staging run"]
     end
 
-    subgraph TRAIN["Training · Vertex AI Pipelines (KFP)"]
-        T["train<br/>XGBoost container"] --> E{"evaluate<br/>F1 ≥ min_f1?"}
-        E -- fail --> A["Pub/Sub alert"]
+    subgraph CT["Vertex AI Pipelines"]
+        F["features<br/>(BigQuery SQL)"] --> T["train<br/>XGBoost"] --> E{"gold-set gate<br/>F1, vs champion"}
+        E -- pass --> REG[("Model Registry<br/>risk-classifier")]
+        E -- fail --> AL["Pub/Sub alert"]
+        X{"extract-eval<br/>per-field P/R gate"} -- pass --> REG2[("Model Registry<br/>invoice-extractor")]
     end
 
-    subgraph SERVE["Serving · Cloud Run"]
-        S["stable revision<br/>80%"]
-        C["canary revision<br/>20%"]
+    subgraph RUN["Cloud Run: invoice-mlops-api"]
+        S["/score + SHAP"]
+        XT["/extract<br/>page filter → LLM"]
     end
 
-    GCS[("GCS<br/>data + model artifacts")]
-    BQ[("BigQuery<br/>prediction log")]
-
-    MAIN --> SERVE
-    MAIN -- submits --> TRAIN
-    GCS --> T
-    E -- pass --> GCS
-    GCS -- MODEL_URI --> SERVE
-    CLIENT(["POST /score"]) --> SERVE
-    SERVE -- Pandera-validated input,<br/>score, latency, model version --> BQ
+    BQ[("BigQuery<br/>predictions, extractions")]
+    SCH["Cloud Scheduler"] -- weekly --> L["launcher job"] --> F
+    SCH -- daily --> D["drift job<br/>PSI + KS"]
+    D -- drift --> AL2["Pub/Sub alert"]
+    D -- drift --> L
+    MAIN --> RUN
+    REG -- "promoted → canary deploy" --> RUN
+    REG2 --> RUN
+    RUN --> BQ --> D
 ```
 
-## What's implemented
+Read the [architecture doc](docs/architecture.md) for the flows and design decisions, and the [walkthrough](docs/walkthrough.md) for each component, why it is built that way, and what an interviewer would ask about it.
 
-| Area | Implementation |
-|---|---|
-| **Data** | Synthetic invoice dataset (400 invoices, 40 vendors) with rule-bootstrapped labels and 8% label noise. See the [model card](docs/model_card.md) for its limits. |
-| **Model** | XGBoost binary classifier on 6 features: `amount`, `lines_sum`, `hour`, `is_new_vendor`, `vendor_avg_amount`, `amount_vs_avg_ratio`. No identifiers are used as features. |
-| **Serving** | FastAPI `/score`, `/health`, `/version`. Multi-stage Docker image. The model is loaded from GCS through `MODEL_URI` (a Secret Manager secret), so it isn't baked into the image. |
-| **Input validation** | Pandera schema (ranges, types, allowed values). Invalid payloads get a `422` before reaching the model. |
-| **Prediction logging** | Every prediction is written to BigQuery with its features, score, model version and latency. This is the base for drift monitoring. |
-| **Training pipeline** | Vertex AI Pipelines (KFP v2): containerized `train` → `evaluate` gate (`F1 ≥ min_f1`). An `ExitHandler` publishes a Pub/Sub alert if any step fails. Parametrized (data URI, hyperparameters, threshold). |
-| **CI/CD** | Cloud Build. On PR it runs unit tests and compiles the pipeline. On merge to `main` it runs the tests, builds and pushes to Artifact Registry, deploys to Cloud Run and submits the staging pipeline run. |
-| **Releases** | Cloud Run traffic split: canary at 20%, and a one-command rollback to the stable revision with no rebuild (`scripts/rollback.sh`). See the [runbook](docs/runbook.md). |
-| **Infra & security** | Terraform for buckets, the service account and IAM. The workload runs as a dedicated service account with no JSON key, and the model URI is stored in Secret Manager. |
+## Status
+
+| Area | Code + tests | Ran on GCP |
+|---|---|---|
+| FastAPI `/score` `/health` `/version` on Cloud Run, Pandera validation, prediction log in BigQuery | ✅ | ✅ Sep–Oct 2026: 395 logged predictions |
+| CI on PRs and CD on merge with Cloud Build | ✅ | ✅ every PR (green and red) since week 9 |
+| Canary at 20%, rollback without rebuild, load test | ✅ | ✅ 2026-09-18 ([runbook](docs/runbook.md)) |
+| KFP pipeline: train, metric gate, Pub/Sub alert on failure | ✅ | ✅ Sep 2026 (runs accepted, and `risk-train-eval-week8-fail` rejected with an alert) |
+| Vertex AI Training custom jobs | ✅ | ✅ 3 hyperparameter runs, Sep 2026 |
+| BigQuery features, gold-set gate vs. champion, Model Registry promotion, revisions pinned to a Registry version | ✅ | — |
+| Weekly Cloud Scheduler run, daily drift job (PSI/KS) that alerts and retrains | ✅ | — |
+| `/extract` (Gemini, Ollama or Gemini API), page filter, per-field precision/recall, prompt gate | ✅ | — |
+| Terraform for every resource, least-privilege service accounts, SHAP | ✅ (`terraform validate` + `fmt` on every PR) | — (`plan`/`apply` not run) |
+
+"Ran on GCP" means the reference deployment in project `invoice-mlops`. What is not ticked is written and unit-tested (73 tests, with fakes for BigQuery, Pub/Sub, Vertex AI and the LLM), but has not been executed against the cloud. [Evidence log](docs/evidence.md).
 
 ## Numbers
 
-Load test with `hey -n 200 -c 10` against `POST /score`, during a 80/20 canary split. Latency is per revision, taken from Cloud Logging:
+Only measured values appear here. Values that were not measured have no number.
 
-| Revision | Requests | 5xx | p50 | p95 |
-|---|---|---|---|---|
-| stable | 157 | 6 (3.8%) | 277 ms | 659 ms |
-| canary | 43 | 0 | 105 ms | 323 ms |
+| What | Value | How |
+|---|---|---|
+| `/score` latency per revision, warm | p95 **0.32–0.66 s** (p50 0.11–0.28 s) | `hey -n 200 -c 10` during an 80/20 canary, Cloud Logging per revision, 2026-09-18 |
+| Cold starts | 6 of 200 requests returned 5xx, all on the stable revision, from cold starts | same run (`min-instances=0`) |
+| Risk model on the gold set (120 invoices, clean labels) | F1 **0.863**, precision 0.957, recall 0.786 | `python scripts/local_report.py` |
+| Risk model on the holdout (80 invoices, 8% label noise) | F1 0.667 | same |
+| Page filter on the extraction gold set | kept exactly the invoice page in **40/40** documents; 40 of 117 pages, 47% of the text, sent to the LLM | same |
 
-All the 5xx errors came from cold starts, because the service runs with `min-instances=0` to keep cost near zero. Client-side p95 including cold starts was 10.3 s. Setting `min-instances=1` is the next step for a latency-sensitive setup.
+Not measured: extraction precision/recall, tokens and cost per 1,000 documents, QPS, monthly cost. The code that measures each one is in the repo (`src/eval/evaluate_extract.py` reports per-field P/R, tokens, latency and cost per 1,000 docs). See [cost](docs/cost.md).
 
-## Roadmap
+## Try it
 
-A 16-week build. Weeks 0–10 are done.
+**1. Laptop, no cloud account** (Python 3.12)
 
-- [x] Synthetic data, XGBoost baseline, FastAPI + Docker
-- [x] Model loaded from GCS, Cloud Build CI/CD to Cloud Run
-- [x] Pandera validation + BigQuery prediction logging
-- [x] Vertex AI pipeline with metric gate, Pub/Sub alerting, PR checks
-- [x] Canary at 20% + rollback without rebuild
-- [ ] Vertex AI Model Registry + threshold-gated promotion
-- [ ] Daily drift detection (PSI / KS) on the BigQuery log → alert → retraining trigger
-- [ ] Engine B: Gemini structured extraction, evaluated per field against a gold set (`data/gold/`)
-- [ ] Architecture and cost docs, Terraform coverage for all resources
+```bash
+pip install -r requirements-dev.txt
+PYTHONPATH=. pytest -q                                    # 73 tests, no GCP
+python src/train/train.py --model-dir models              # models/model.joblib
+LOG_SINK=stdout EXTRACT_BACKEND=off MODEL_VERSION=local \
+  uvicorn src.api.main:app --port 8080
+curl -X POST "localhost:8080/score?explain=true" -H 'Content-Type: application/json' \
+  -d '{"amount":900,"lines_sum":700,"hour":3,"is_new_vendor":1,"vendor_avg_amount":400,"amount_vs_avg_ratio":2.25}'
+```
+
+Or `docker compose up --build`, which trains and serves the model.
+
+**2. Extraction with the model of your choice.** Copy `.env.example` to `.env` and pick a backend:
+
+| `EXTRACT_BACKEND` | You need | |
+|---|---|---|
+| `ollama` | a local Ollama (CPU, or a GPU with `docker-compose.gpu.yml`) | `docker compose --profile ollama up`, then `docker compose exec ollama ollama pull qwen2.5:7b` |
+| `gemini-api` | `GOOGLE_API_KEY` | Gemini Developer API |
+| `vertex` | `gcloud auth application-default login` + `GOOGLE_CLOUD_PROJECT` | Gemini on Vertex AI, no key |
+
+```bash
+curl -F file=@data/gold/extract/docs/gold-001.pdf localhost:8080/extract
+python -m src.eval.evaluate_extract --backend ollama --prompt-version v2   # per-field P/R on the 40-document gold set
+```
+
+**3. The whole platform in your own GCP project:** follow [infra/README.md](infra/README.md) (Terraform, then two bootstrap pipeline runs).
 
 ## Repository layout
 
 ```
-src/api/        FastAPI scoring service
-src/train/      training entrypoint (container used by the pipeline)
-src/eval/       promotion gate
-src/features/   synthetic dataset generator
-src/extract/    Engine B (LLM extraction), in progress
-pipelines/      KFP pipeline definition + staging submit
-infra/          Terraform
-scripts/        operational scripts (rollback)
-tests/          unit tests (gate, request schema, input validation)
-docs/           model card, runbook, architecture, cost
+src/api/          FastAPI: /score (+SHAP), /extract, /health, /version
+src/features/     synthetic invoices, BigQuery feature SQL
+src/train/        training entrypoint (Vertex Training and the pipeline)
+src/eval/         risk gate, per-field extraction metrics, prompt gate
+src/extract/      page filter, extractor, Gemini and Ollama backends, prompts
+src/monitoring/   drift job (PSI per feature, KS on the score)
+src/launcher.py   submits the training pipeline (Scheduler, drift)
+src/registry.py   Model Registry: resolve versions, register and move aliases
+pipelines/        KFP pipelines: risk-train-eval, extract-eval
+infra/            Terraform
+scripts/          canary, promote, rollback, drift validation, SHAP, local report
+data/gold/        risk gold set (CSV) and extraction gold set (40 PDFs + labels)
+docs/             architecture, walkthrough, runbook, cost, model card, PII, evidence
 ```
-
-## Run locally
-
-```bash
-pip install -r requirements.txt
-python src/features/generate_dataset.py      # data/invoices.csv
-python src/train/train.py                     # models/model.joblib + metrics.json
-uvicorn src.api.main:app --port 8080
-PYTHONPATH=. pytest -q
-```
-
-Locally the API loads `models/model.joblib`. Prediction logging needs GCP credentials with access to the BigQuery table.
