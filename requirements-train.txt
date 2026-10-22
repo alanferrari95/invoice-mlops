@@ -1,7 +1,15 @@
-# Training image (src/train). Same model stack as the API image.
+# Risk pipeline image (src/train, src/features, src/eval, src/registry).
+# Used by the Vertex Training custom jobs and by every KFP component of the risk pipeline.
 numpy==2.5.4
 pandas==3.1.0
 scikit-learn==1.9.1
 xgboost==3.4.1
 joblib==1.6.0
 google-cloud-storage==3.17.1
+google-cloud-bigquery==3.46.2
+db-dtypes==1.8.0
+google-cloud-pubsub==2.43.0
+google-cloud-aiplatform==2.6.0
+google-auth==2.62.0
+requests==2.33.0
+kfp==2.17.0

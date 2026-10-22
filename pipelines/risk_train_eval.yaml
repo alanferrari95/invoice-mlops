@@ -1,113 +1,455 @@
 # PIPELINE DEFINITION
 # Name: risk-train-eval
 # Inputs:
-#    data_uri: str [Default: 'gs://invoice-mlops-raw/raw/invoices.csv']
+#    alias: str [Default: 'production']
+#    gold_uri: str [Default: 'gs://invoice-mlops-raw/gold/risk_gold.csv']
 #    max_depth: int [Default: 4.0]
-#    min_f1: float [Default: 0.5]
-#    model_dir: str [Default: 'gs://invoice-mlops-artifacts/models/pipeline-week7']
+#    max_regression: float [Default: 0.02]
+#    min_f1: float [Default: 0.75]
 #    n_estimators: int [Default: 100.0]
+#    project: str [Default: 'invoice-mlops']
+#    promoted_topic: str [Default: 'projects/invoice-mlops/topics/invoice-mlops-model-promoted']
+#    registry_model: str [Default: 'projects/invoice-mlops/locations/europe-west4/models/429981614227849216']
+#    serving_image: str [Default: 'europe-docker.pkg.dev/vertex-ai/prediction/xgboost-cpu.2-1:latest']
+#    source_table: str [Default: 'invoice-mlops.invoice_mlops.invoices']
 #    topic: str [Default: 'projects/invoice-mlops/topics/invoice-mlops-pipeline-alerts']
 components:
+  comp-build-features:
+    executorLabel: exec-build-features
+    inputDefinitions:
+      parameters:
+        project:
+          parameterType: STRING
+        source_table:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        features:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-condition-3:
+    dag:
+      tasks:
+        register:
+          cachingOptions: {}
+          componentRef:
+            name: comp-register
+          inputs:
+            artifacts:
+              model:
+                componentInputArtifact: pipelinechannel--train-model
+            parameters:
+              alias:
+                componentInputParameter: pipelinechannel--alias
+              gold_f1:
+                componentInputParameter: pipelinechannel--evaluate-gold_f1
+              pipeline_job:
+                runtimeValue:
+                  constant: '{{$.pipeline_job_name}}'
+              promoted_topic:
+                componentInputParameter: pipelinechannel--promoted_topic
+              reason:
+                componentInputParameter: pipelinechannel--evaluate-reason
+              registry_model:
+                componentInputParameter: pipelinechannel--registry_model
+              serving_image:
+                componentInputParameter: pipelinechannel--serving_image
+          taskInfo:
+            name: register-model
+    inputDefinitions:
+      artifacts:
+        pipelinechannel--train-model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+      parameters:
+        pipelinechannel--alias:
+          parameterType: STRING
+        pipelinechannel--evaluate-decision:
+          parameterType: STRING
+        pipelinechannel--evaluate-gold_f1:
+          parameterType: NUMBER_DOUBLE
+        pipelinechannel--evaluate-reason:
+          parameterType: STRING
+        pipelinechannel--promoted_topic:
+          parameterType: STRING
+        pipelinechannel--registry_model:
+          parameterType: STRING
+        pipelinechannel--serving_image:
+          parameterType: STRING
+  comp-condition-4:
+    dag:
+      tasks:
+        notify-rejected:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-notify-rejected
+          inputs:
+            parameters:
+              gold_f1:
+                componentInputParameter: pipelinechannel--evaluate-gold_f1
+              pipeline_job:
+                runtimeValue:
+                  constant: '{{$.pipeline_job_name}}'
+              reason:
+                componentInputParameter: pipelinechannel--evaluate-reason
+              topic:
+                componentInputParameter: pipelinechannel--topic
+          taskInfo:
+            name: notify-rejected
+    inputDefinitions:
+      parameters:
+        pipelinechannel--evaluate-decision:
+          parameterType: STRING
+        pipelinechannel--evaluate-gold_f1:
+          parameterType: NUMBER_DOUBLE
+        pipelinechannel--evaluate-reason:
+          parameterType: STRING
+        pipelinechannel--topic:
+          parameterType: STRING
+  comp-condition-branches-2:
+    dag:
+      tasks:
+        condition-3:
+          componentRef:
+            name: comp-condition-3
+          inputs:
+            artifacts:
+              pipelinechannel--train-model:
+                componentInputArtifact: pipelinechannel--train-model
+            parameters:
+              pipelinechannel--alias:
+                componentInputParameter: pipelinechannel--alias
+              pipelinechannel--evaluate-decision:
+                componentInputParameter: pipelinechannel--evaluate-decision
+              pipelinechannel--evaluate-gold_f1:
+                componentInputParameter: pipelinechannel--evaluate-gold_f1
+              pipelinechannel--evaluate-reason:
+                componentInputParameter: pipelinechannel--evaluate-reason
+              pipelinechannel--promoted_topic:
+                componentInputParameter: pipelinechannel--promoted_topic
+              pipelinechannel--registry_model:
+                componentInputParameter: pipelinechannel--registry_model
+              pipelinechannel--serving_image:
+                componentInputParameter: pipelinechannel--serving_image
+          taskInfo:
+            name: gate-passed
+          triggerPolicy:
+            condition: inputs.parameter_values['pipelinechannel--evaluate-decision']
+              == 'promote'
+        condition-4:
+          componentRef:
+            name: comp-condition-4
+          inputs:
+            parameters:
+              pipelinechannel--evaluate-decision:
+                componentInputParameter: pipelinechannel--evaluate-decision
+              pipelinechannel--evaluate-gold_f1:
+                componentInputParameter: pipelinechannel--evaluate-gold_f1
+              pipelinechannel--evaluate-reason:
+                componentInputParameter: pipelinechannel--evaluate-reason
+              pipelinechannel--topic:
+                componentInputParameter: pipelinechannel--topic
+          taskInfo:
+            name: gate-failed
+          triggerPolicy:
+            condition: '!(inputs.parameter_values[''pipelinechannel--evaluate-decision'']
+              == ''promote'')'
+    inputDefinitions:
+      artifacts:
+        pipelinechannel--train-model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+      parameters:
+        pipelinechannel--alias:
+          parameterType: STRING
+        pipelinechannel--evaluate-decision:
+          parameterType: STRING
+        pipelinechannel--evaluate-gold_f1:
+          parameterType: NUMBER_DOUBLE
+        pipelinechannel--evaluate-reason:
+          parameterType: STRING
+        pipelinechannel--promoted_topic:
+          parameterType: STRING
+        pipelinechannel--registry_model:
+          parameterType: STRING
+        pipelinechannel--serving_image:
+          parameterType: STRING
+        pipelinechannel--topic:
+          parameterType: STRING
   comp-evaluate:
     executorLabel: exec-evaluate
     inputDefinitions:
+      artifacts:
+        gold:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
       parameters:
+        alias:
+          parameterType: STRING
+        max_regression:
+          parameterType: NUMBER_DOUBLE
         min_f1:
           parameterType: NUMBER_DOUBLE
-        model_dir:
+        registry_model:
           parameterType: STRING
     outputDefinitions:
+      artifacts:
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
       parameters:
-        Output:
+        decision:
+          parameterType: STRING
+        gold_f1:
+          parameterType: NUMBER_DOUBLE
+        reason:
           parameterType: STRING
   comp-exit-handler-1:
     dag:
       tasks:
-        evaluate:
+        build-features:
           cachingOptions:
             enableCache: true
           componentRef:
-            name: comp-evaluate
-          dependentTasks:
-          - train
+            name: comp-build-features
           inputs:
             parameters:
+              project:
+                componentInputParameter: pipelinechannel--project
+              source_table:
+                componentInputParameter: pipelinechannel--source_table
+          taskInfo:
+            name: features-bq
+        condition-branches-2:
+          componentRef:
+            name: comp-condition-branches-2
+          dependentTasks:
+          - evaluate
+          - train
+          inputs:
+            artifacts:
+              pipelinechannel--train-model:
+                taskOutputArtifact:
+                  outputArtifactKey: model
+                  producerTask: train
+            parameters:
+              pipelinechannel--alias:
+                componentInputParameter: pipelinechannel--alias
+              pipelinechannel--evaluate-decision:
+                taskOutputParameter:
+                  outputParameterKey: decision
+                  producerTask: evaluate
+              pipelinechannel--evaluate-gold_f1:
+                taskOutputParameter:
+                  outputParameterKey: gold_f1
+                  producerTask: evaluate
+              pipelinechannel--evaluate-reason:
+                taskOutputParameter:
+                  outputParameterKey: reason
+                  producerTask: evaluate
+              pipelinechannel--promoted_topic:
+                componentInputParameter: pipelinechannel--promoted_topic
+              pipelinechannel--registry_model:
+                componentInputParameter: pipelinechannel--registry_model
+              pipelinechannel--serving_image:
+                componentInputParameter: pipelinechannel--serving_image
+              pipelinechannel--topic:
+                componentInputParameter: pipelinechannel--topic
+          taskInfo:
+            name: condition-branches-2
+        evaluate:
+          cachingOptions: {}
+          componentRef:
+            name: comp-evaluate
+          dependentTasks:
+          - importer
+          - train
+          inputs:
+            artifacts:
+              gold:
+                taskOutputArtifact:
+                  outputArtifactKey: artifact
+                  producerTask: importer
+              model:
+                taskOutputArtifact:
+                  outputArtifactKey: model
+                  producerTask: train
+            parameters:
+              alias:
+                componentInputParameter: pipelinechannel--alias
+              max_regression:
+                componentInputParameter: pipelinechannel--max_regression
               min_f1:
                 componentInputParameter: pipelinechannel--min_f1
-              model_dir:
-                componentInputParameter: pipelinechannel--model_dir
+              registry_model:
+                componentInputParameter: pipelinechannel--registry_model
           taskInfo:
-            name: evaluate
+            name: evaluate-gold
+        importer:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-importer
+          inputs:
+            parameters:
+              uri:
+                componentInputParameter: pipelinechannel--gold_uri
+          taskInfo:
+            name: gold-set
         train:
           cachingOptions:
             enableCache: true
           componentRef:
             name: comp-train
+          dependentTasks:
+          - build-features
           inputs:
+            artifacts:
+              features:
+                taskOutputArtifact:
+                  outputArtifactKey: features
+                  producerTask: build-features
             parameters:
-              data_uri:
-                componentInputParameter: pipelinechannel--data_uri
               max_depth:
                 componentInputParameter: pipelinechannel--max_depth
-              model_dir:
-                componentInputParameter: pipelinechannel--model_dir
               n_estimators:
                 componentInputParameter: pipelinechannel--n_estimators
           taskInfo:
-            name: train
+            name: train-xgboost
     inputDefinitions:
       parameters:
-        pipelinechannel--data_uri:
+        pipelinechannel--alias:
+          parameterType: STRING
+        pipelinechannel--gold_uri:
           parameterType: STRING
         pipelinechannel--max_depth:
           parameterType: NUMBER_INTEGER
+        pipelinechannel--max_regression:
+          parameterType: NUMBER_DOUBLE
         pipelinechannel--min_f1:
           parameterType: NUMBER_DOUBLE
-        pipelinechannel--model_dir:
-          parameterType: STRING
         pipelinechannel--n_estimators:
           parameterType: NUMBER_INTEGER
+        pipelinechannel--project:
+          parameterType: STRING
+        pipelinechannel--promoted_topic:
+          parameterType: STRING
+        pipelinechannel--registry_model:
+          parameterType: STRING
+        pipelinechannel--serving_image:
+          parameterType: STRING
+        pipelinechannel--source_table:
+          parameterType: STRING
+        pipelinechannel--topic:
+          parameterType: STRING
+  comp-importer:
+    executorLabel: exec-importer
+    inputDefinitions:
+      parameters:
+        uri:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        artifact:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
   comp-notify-if-failed:
     executorLabel: exec-notify-if-failed
     inputDefinitions:
       parameters:
-        min_f1:
-          parameterType: NUMBER_DOUBLE
         status:
           isOptional: true
           parameterType: TASK_FINAL_STATUS
         topic:
           parameterType: STRING
+  comp-notify-rejected:
+    executorLabel: exec-notify-rejected
+    inputDefinitions:
+      parameters:
+        gold_f1:
+          parameterType: NUMBER_DOUBLE
+        pipeline_job:
+          parameterType: STRING
+        reason:
+          parameterType: STRING
+        topic:
+          parameterType: STRING
+  comp-register:
+    executorLabel: exec-register
+    inputDefinitions:
+      artifacts:
+        model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+      parameters:
+        alias:
+          parameterType: STRING
+        gold_f1:
+          parameterType: NUMBER_DOUBLE
+        pipeline_job:
+          parameterType: STRING
+        promoted_topic:
+          parameterType: STRING
+        reason:
+          parameterType: STRING
+        registry_model:
+          parameterType: STRING
+        serving_image:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        registered:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        Output:
+          parameterType: STRING
   comp-train:
     executorLabel: exec-train
     inputDefinitions:
+      artifacts:
+        features:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
       parameters:
-        data_uri:
-          parameterType: STRING
         max_depth:
           parameterType: NUMBER_INTEGER
-        model_dir:
-          parameterType: STRING
         n_estimators:
           parameterType: NUMBER_INTEGER
+    outputDefinitions:
+      artifacts:
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+        model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
 deploymentSpec:
   executors:
-    exec-evaluate:
+    exec-build-features:
       container:
         args:
         - --executor_input
         - '{{$}}'
         - --function_to_execute
-        - evaluate
+        - build_features
         command:
-        - sh
-        - -c
-        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
-          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'google-cloud-storage'\
-          \  &&  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.17.0'\
-          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
-          $0\" \"$@\"\n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)
@@ -119,20 +461,59 @@ deploymentSpec:
 
           '
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
-          \ *\n\ndef evaluate(model_dir: str, min_f1: float) -> str:\n    import json\n\
-          \    from pathlib import Path\n\n    from google.cloud import storage\n\n\
-          \    def assert_min_f1(metrics: dict, min_f1_threshold: float) -> str:\n\
-          \        if \"f1\" not in metrics:\n            raise RuntimeError(\"metrics.json\
-          \ missing key 'f1'\")\n        f1 = float(metrics[\"f1\"])\n        if f1\
-          \ < min_f1_threshold:\n            raise RuntimeError(f\"f1={f1} below min_f1={min_f1_threshold}\"\
-          )\n        return f\"f1={f1}\"\n\n    prefix = model_dir.rstrip(\"/\")\n\
-          \    rest = prefix[len(\"gs://\") :]\n    bucket_name, _, blob_prefix =\
-          \ rest.partition(\"/\")\n    blob_name = f\"{blob_prefix}/metrics.json\"\
-          \ if blob_prefix else \"metrics.json\"\n\n    local_path = Path(\"/tmp/metrics.json\"\
-          )\n    storage.Client().bucket(bucket_name).blob(blob_name).download_to_filename(str(local_path))\n\
-          \    metrics = json.loads(local_path.read_text(encoding=\"utf-8\"))\n  \
-          \  return assert_min_f1(metrics, min_f1)\n\n"
-        image: python:3.12-slim
+          \ *\n\ndef build_features(project: str, source_table: str, features: dsl.Output[dsl.Dataset]):\n\
+          \    from src.features.build_features import query_features\n\n    df =\
+          \ query_features(project, source_table)\n    df.to_csv(features.path, index=False)\n\
+          \    features.metadata.update({\"rows\": len(df), \"source_table\": source_table,\
+          \ \"risk_rate\": float(df[\"risk\"].mean())})\n\n"
+        image: europe-west4-docker.pkg.dev/invoice-mlops/invoice-mlops/train:latest
+    exec-evaluate:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - evaluate
+        command:
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef evaluate(\n    model: dsl.Input[dsl.Model],\n    gold: dsl.Input[dsl.Dataset],\n\
+          \    registry_model: str,\n    alias: str,\n    min_f1: float,\n    max_regression:\
+          \ float,\n    metrics: dsl.Output[dsl.Metrics],\n) -> NamedTuple(\"EvalOutputs\"\
+          , [(\"decision\", str), (\"reason\", str), (\"gold_f1\", float)]):\n   \
+          \ from collections import namedtuple\n    from pathlib import Path\n\n \
+          \   import joblib\n    import pandas as pd\n\n    from src import registry\n\
+          \    from src.eval.gate import decide, gold_metrics\n\n    gold_df = pd.read_csv(gold.path)\n\
+          \    candidate = gold_metrics(joblib.load(Path(model.path) / \"model.joblib\"\
+          ), gold_df)\n    for key, value in candidate.items():\n        metrics.log_metric(f\"\
+          gold_{key}\", round(value, 4) if isinstance(value, float) else value)\n\n\
+          \    champion_f1 = None\n    champion = registry.resolve(registry_model,\
+          \ alias)\n    if champion is not None:\n        champion_path = champion.model_uri.replace(\"\
+          gs://\", \"/gcs/\", 1)\n        if Path(champion_path).is_file():\n    \
+          \        champion_f1 = gold_metrics(joblib.load(champion_path), gold_df)[\"\
+          f1\"]\n            metrics.log_metric(\"champion_gold_f1\", round(champion_f1,\
+          \ 4))\n            metrics.log_metric(\"champion_version\", int(champion.version_id))\n\
+          \n    d = decide(candidate[\"f1\"], champion_f1, min_f1, max_regression)\n\
+          \    print(d.reason)\n    out = namedtuple(\"EvalOutputs\", [\"decision\"\
+          , \"reason\", \"gold_f1\"])\n    return out(\"promote\" if d.promote else\
+          \ \"reject\", d.reason, candidate[\"f1\"])\n\n"
+        image: europe-west4-docker.pkg.dev/invoice-mlops/invoice-mlops/train:latest
+    exec-importer:
+      importer:
+        artifactUri:
+          runtimeParameter: uri
+        typeSchema:
+          schemaTitle: system.Dataset
+          schemaVersion: 0.0.1
     exec-notify-if-failed:
       container:
         args:
@@ -141,14 +522,6 @@ deploymentSpec:
         - --function_to_execute
         - notify_if_failed
         command:
-        - sh
-        - -c
-        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
-          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'google-cloud-pubsub'\
-          \  &&  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.17.0'\
-          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
-          $0\" \"$@\"\n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)
@@ -161,26 +534,107 @@ deploymentSpec:
           '
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
           \ *\n\ndef notify_if_failed(status: dsl.PipelineTaskFinalStatus, topic:\
-          \ str, min_f1: float):\n    import json\n    from google.cloud import pubsub_v1\n\
-          \n    if status.state == \"SUCCEEDED\":\n        return\n\n    publisher\
-          \ = pubsub_v1.PublisherClient()\n    payload = {\n        \"state\": status.state,\n\
-          \        \"pipeline_job_resource_name\": status.pipeline_job_resource_name,\n\
-          \        \"error_code\": status.error_code,\n        \"error_message\":\
-          \ status.error_message,\n        \"min_f1\": min_f1,\n    }\n    publisher.publish(topic,\
-          \ json.dumps(payload).encode(\"utf-8\")).result()\n\n"
-        image: python:3.12-slim
+          \ str):\n    import json\n\n    from google.cloud import pubsub_v1\n\n \
+          \   if status.state == \"SUCCEEDED\":\n        return\n    payload = {\n\
+          \        \"state\": status.state,\n        \"pipeline_job_resource_name\"\
+          : status.pipeline_job_resource_name,\n        \"error_code\": status.error_code,\n\
+          \        \"error_message\": status.error_message,\n    }\n    pubsub_v1.PublisherClient().publish(topic,\
+          \ json.dumps(payload).encode(\"utf-8\"), kind=\"failure\").result()\n\n"
+        image: europe-west4-docker.pkg.dev/invoice-mlops/invoice-mlops/train:latest
+    exec-notify-rejected:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - notify_rejected
+        command:
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef notify_rejected(topic: str, reason: str, gold_f1: float, pipeline_job:\
+          \ str):\n    import json\n\n    from google.cloud import pubsub_v1\n\n \
+          \   payload = {\"state\": \"REJECTED\", \"reason\": reason, \"gold_f1\"\
+          : gold_f1, \"pipeline_job\": pipeline_job}\n    pubsub_v1.PublisherClient().publish(topic,\
+          \ json.dumps(payload).encode(\"utf-8\"), kind=\"gate\").result()\n\n"
+        image: europe-west4-docker.pkg.dev/invoice-mlops/invoice-mlops/train:latest
+    exec-register:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - register
+        command:
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef register(\n    model: dsl.Input[dsl.Model],\n    registry_model:\
+          \ str,\n    alias: str,\n    serving_image: str,\n    gold_f1: float,\n\
+          \    reason: str,\n    pipeline_job: str,\n    promoted_topic: str,\n  \
+          \  registered: dsl.Output[dsl.Artifact],\n) -> str:\n    import json\n \
+          \   import re\n\n    from google.cloud import pubsub_v1\n\n    from src.registry\
+          \ import register_version\n\n    job_label = re.sub(r\"[^a-z0-9_-]\", \"\
+          -\", pipeline_job.lower())[:63]\n    version = register_version(\n     \
+          \   model=registry_model,\n        artifact_uri=model.uri,\n        alias=alias,\n\
+          \        serving_image=serving_image,\n        description=f\"gold_f1={gold_f1:.4f};\
+          \ {reason}\",\n        labels={\"pipeline_job\": job_label},\n    )\n  \
+          \  registered.uri = f\"https://{registry_model.split('/')[3]}-aiplatform.googleapis.com/v1/{registry_model}@{version.version_id}\"\
+          \n    registered.metadata.update({\"version_id\": version.version_id, \"\
+          alias\": alias, \"gold_f1\": gold_f1})\n\n    # A new production model is\
+          \ a release: this message triggers cloudbuild-model-deploy.yaml,\n    #\
+          \ which deploys a Cloud Run revision pinned to this version as a 20% canary.\n\
+          \    if alias == \"production\":\n        payload = {\"model\": registry_model,\
+          \ \"version_id\": version.version_id, \"gold_f1\": gold_f1}\n        pubsub_v1.PublisherClient().publish(\n\
+          \            promoted_topic, json.dumps(payload).encode(\"utf-8\"), version_id=version.version_id\n\
+          \        ).result()\n    return version.version_id\n\n"
+        image: europe-west4-docker.pkg.dev/invoice-mlops/invoice-mlops/train:latest
     exec-train:
       container:
         args:
-        - --data-uri
-        - '{{$.inputs.parameters[''data_uri'']}}'
-        - --model-dir
-        - '{{$.inputs.parameters[''model_dir'']}}'
-        - --n-estimators
-        - '{{$.inputs.parameters[''n_estimators'']}}'
-        - --max-depth
-        - '{{$.inputs.parameters[''max_depth'']}}'
-        image: europe-west4-docker.pkg.dev/invoice-mlops/invoice-mlops/train:week4
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - train
+        command:
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef train(\n    features: dsl.Input[dsl.Dataset],\n    n_estimators:\
+          \ int,\n    max_depth: int,\n    model: dsl.Output[dsl.Model],\n    metrics:\
+          \ dsl.Output[dsl.Metrics],\n):\n    from pathlib import Path\n\n    import\
+          \ pandas as pd\n\n    from src.train.train import fit, save\n\n    clf,\
+          \ holdout = fit(pd.read_csv(features.path), n_estimators, max_depth)\n \
+          \   save(clf, holdout, Path(model.path))\n    model.metadata.update({\"\
+          framework\": \"xgboost\", \"n_estimators\": n_estimators, \"max_depth\"\
+          : max_depth})\n    for key in (\"accuracy\", \"precision\", \"recall\",\
+          \ \"f1\"):\n        metrics.log_metric(f\"holdout_{key}\", round(holdout[key],\
+          \ 4))\n\n"
+        image: europe-west4-docker.pkg.dev/invoice-mlops/invoice-mlops/train:latest
 pipelineInfo:
   name: risk-train-eval
 root:
@@ -191,18 +645,32 @@ root:
           name: comp-exit-handler-1
         inputs:
           parameters:
-            pipelinechannel--data_uri:
-              componentInputParameter: data_uri
+            pipelinechannel--alias:
+              componentInputParameter: alias
+            pipelinechannel--gold_uri:
+              componentInputParameter: gold_uri
             pipelinechannel--max_depth:
               componentInputParameter: max_depth
+            pipelinechannel--max_regression:
+              componentInputParameter: max_regression
             pipelinechannel--min_f1:
               componentInputParameter: min_f1
-            pipelinechannel--model_dir:
-              componentInputParameter: model_dir
             pipelinechannel--n_estimators:
               componentInputParameter: n_estimators
+            pipelinechannel--project:
+              componentInputParameter: project
+            pipelinechannel--promoted_topic:
+              componentInputParameter: promoted_topic
+            pipelinechannel--registry_model:
+              componentInputParameter: registry_model
+            pipelinechannel--serving_image:
+              componentInputParameter: serving_image
+            pipelinechannel--source_table:
+              componentInputParameter: source_table
+            pipelinechannel--topic:
+              componentInputParameter: topic
         taskInfo:
-          name: exit-handler-1
+          name: train-eval-register
       notify-if-failed:
         cachingOptions:
           enableCache: true
@@ -212,8 +680,6 @@ root:
         - exit-handler-1
         inputs:
           parameters:
-            min_f1:
-              componentInputParameter: min_f1
             status:
               taskFinalStatus:
                 producerTask: exit-handler-1
@@ -225,26 +691,50 @@ root:
           strategy: ALL_UPSTREAM_TASKS_COMPLETED
   inputDefinitions:
     parameters:
-      data_uri:
-        defaultValue: gs://invoice-mlops-raw/raw/invoices.csv
+      alias:
+        defaultValue: production
+        isOptional: true
+        parameterType: STRING
+      gold_uri:
+        defaultValue: gs://invoice-mlops-raw/gold/risk_gold.csv
         isOptional: true
         parameterType: STRING
       max_depth:
         defaultValue: 4.0
         isOptional: true
         parameterType: NUMBER_INTEGER
-      min_f1:
-        defaultValue: 0.5
+      max_regression:
+        defaultValue: 0.02
         isOptional: true
         parameterType: NUMBER_DOUBLE
-      model_dir:
-        defaultValue: gs://invoice-mlops-artifacts/models/pipeline-week7
+      min_f1:
+        defaultValue: 0.75
         isOptional: true
-        parameterType: STRING
+        parameterType: NUMBER_DOUBLE
       n_estimators:
         defaultValue: 100.0
         isOptional: true
         parameterType: NUMBER_INTEGER
+      project:
+        defaultValue: invoice-mlops
+        isOptional: true
+        parameterType: STRING
+      promoted_topic:
+        defaultValue: projects/invoice-mlops/topics/invoice-mlops-model-promoted
+        isOptional: true
+        parameterType: STRING
+      registry_model:
+        defaultValue: projects/invoice-mlops/locations/europe-west4/models/429981614227849216
+        isOptional: true
+        parameterType: STRING
+      serving_image:
+        defaultValue: europe-docker.pkg.dev/vertex-ai/prediction/xgboost-cpu.2-1:latest
+        isOptional: true
+        parameterType: STRING
+      source_table:
+        defaultValue: invoice-mlops.invoice_mlops.invoices
+        isOptional: true
+        parameterType: STRING
       topic:
         defaultValue: projects/invoice-mlops/topics/invoice-mlops-pipeline-alerts
         isOptional: true
