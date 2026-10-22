@@ -1,5 +1,6 @@
 steps:
   - name: python:3.12-slim
+    id: test-and-compile
     entrypoint: bash
     args:
       - -c
@@ -9,5 +10,18 @@ steps:
         PYTHONPATH=. pytest -q
         PYTHONPATH=. python pipelines/risk_train_pipeline.py
         PYTHONPATH=. python pipelines/extract_eval_pipeline.py
+
+  # Terraform is checked offline: no backend, no credentials, no plan against the project.
+  - name: hashicorp/terraform:1.17.0
+    id: terraform-validate
+    waitFor: ["-"]
+    entrypoint: sh
+    args:
+      - -c
+      - |
+        set -eu
+        terraform -chdir=infra fmt -check -recursive
+        terraform -chdir=infra init -backend=false -input=false
+        terraform -chdir=infra validate
 options:
   logging: CLOUD_LOGGING_ONLY

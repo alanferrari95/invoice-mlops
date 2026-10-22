@@ -14,6 +14,16 @@ Terraform for the whole GCP side. Works in any project: everything is derived fr
 | `cicd.tf` | Cloud Build triggers (PR, main, model promotion) |
 | `examples/` | imports for the original project, where some resources predate Terraform |
 
+## Check it offline (no GCP account)
+
+```bash
+terraform -chdir=infra fmt -check -recursive
+terraform -chdir=infra init -backend=false
+terraform -chdir=infra validate
+```
+
+The PR build runs the same three commands.
+
 ## Bring it up in your own project
 
 ```bash
