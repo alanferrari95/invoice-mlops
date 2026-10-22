@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from src.api.main import LoadedModel, PREDICTIONS_TABLE, create_app
@@ -62,3 +63,17 @@ def test_version_reports_loaded_model(client):
 
 def test_health(client):
     assert client.get("/health").json() == {"status": "ok"}
+
+
+def test_explain_returns_shap_values_that_add_up_to_the_margin(client, tiny_model):
+    import math
+
+    body = client.post("/score?explain=true", json=VALID_PAYLOAD).json()
+    assert set(body["explanation"]) == {"amount", "lines_sum", "hour", "is_new_vendor",
+                                        "vendor_avg_amount", "amount_vs_avg_ratio"}
+    margin = body["base_value"] + sum(body["explanation"].values())
+    assert 1 / (1 + math.exp(-margin)) == pytest.approx(body["score"], abs=1e-3)
+
+
+def test_explanation_is_opt_in(client):
+    assert client.post("/score", json=VALID_PAYLOAD).json()["explanation"] is None
