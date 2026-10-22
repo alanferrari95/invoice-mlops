@@ -1,0 +1,7 @@
+# Local development and CI: everything above plus test and pipeline tooling.
+-r requirements.txt
+-r requirements-monitor.txt
+pytest==9.1.1
+httpx2==2.16.0
+kfp==2.17.0
+faker==40.43.0
