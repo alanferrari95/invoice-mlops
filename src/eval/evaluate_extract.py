@@ -1,7 +1,7 @@
 """Run the extractor over a labelled document set and report quality, tokens and cost.
 
     python -m src.eval.evaluate_extract --prompt-version v2 --gold data/gold/extract
-    python -m src.eval.evaluate_extract --prompt-version v2 --gold /tmp/sample50 --out report.json
+    python -m src.eval.evaluate_extract --backend ollama --prompt-version v2 --out report.json
 
 Used by the evaluate_extract pipeline component and for the README numbers.
 """
@@ -16,7 +16,7 @@ from typing import Optional
 import numpy as np
 
 from src.eval.extract_metrics import field_report
-from src.extract.gemini import GeminiExtractor, make_client
+from src.extract.extractor import BACKENDS, Extractor, make_backend
 from src.extract.pricing import EU_LAUNCH, EU_STANDARD, cost_usd
 from src.extract.schema import FIELDS
 
@@ -30,7 +30,9 @@ def load_gold(gold_dir: Path) -> dict[str, dict]:
     return labels
 
 
-def evaluate(extractor: GeminiExtractor, gold_dir: Path, limit: Optional[int] = None) -> dict:
+def evaluate(extractor: Extractor, gold_dir: Path, limit: Optional[int] = None,
+             price_per_token: bool = True) -> dict:
+    """price_per_token=False for local models: their cost is your hardware, not tokens."""
     gold = load_gold(gold_dir)
     if limit:
         gold = dict(list(gold.items())[:limit])
@@ -74,11 +76,11 @@ def evaluate(extractor: GeminiExtractor, gold_dir: Path, limit: Optional[int] = 
     }
     for price, key in ((EU_LAUNCH, "usd_per_1000_docs_launch"), (EU_STANDARD, "usd_per_1000_docs_standard")):
         usage[key] = round(1000 * cost_usd(totals["prompt_tokens"], totals["output_tokens"],
-                                           totals["thoughts_tokens"], price) / n, 4) if n else None
+                                           totals["thoughts_tokens"], price) / n, 4) if n and price_per_token else None
     return {
         "model": extractor.model,
         "prompt_version": extractor.prompt_version,
-        "thinking_level": extractor.thinking_level,
+        "backend": type(extractor.backend).__name__,
         "report": report,
         "usage": usage,
         "errors": errors,
@@ -88,6 +90,7 @@ def evaluate(extractor: GeminiExtractor, gold_dir: Path, limit: Optional[int] = 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--backend", choices=BACKENDS, default=None, help="default: $EXTRACT_BACKEND or vertex")
     parser.add_argument("--prompt-version", default="v2")
     parser.add_argument("--gold", default="data/gold/extract")
     parser.add_argument("--model", default=None)
@@ -95,9 +98,9 @@ def main() -> None:
     parser.add_argument("--out", default=None)
     args = parser.parse_args()
 
-    kwargs = {"model": args.model} if args.model else {}
-    extractor = GeminiExtractor(make_client(), prompt_version=args.prompt_version, **kwargs)
-    result = evaluate(extractor, Path(args.gold), args.limit)
+    backend = make_backend(args.backend, model=args.model)
+    extractor = Extractor(backend, prompt_version=args.prompt_version)
+    result = evaluate(extractor, Path(args.gold), args.limit, price_per_token=type(backend).__name__ == "GeminiBackend")
     summary = {k: v for k, v in result.items() if k != "per_doc"}
     print(json.dumps(summary, indent=2))
     if args.out:

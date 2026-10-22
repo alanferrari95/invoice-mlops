@@ -15,11 +15,11 @@ from typing import NamedTuple
 
 from kfp import compiler, dsl
 
-PROJECT = "invoice-mlops"
-REGION = "europe-west4"
-PIPELINE_IMAGE = os.getenv(
-    "PIPELINE_IMAGE", f"{REGION}-docker.pkg.dev/{PROJECT}/invoice-mlops/train:latest"
-)
+from src import settings
+
+PROJECT = settings.PROJECT
+REGION = settings.REGION
+PIPELINE_IMAGE = os.getenv("PIPELINE_IMAGE", f"{settings.IMAGE_REPO}/train:latest")
 OUTPUT = os.getenv("EXTRACT_PIPELINE_YAML", "pipelines/extract_eval.yaml")
 
 
@@ -47,10 +47,10 @@ def evaluate_extract(
     from src import registry
     from src.eval.evaluate_extract import evaluate
     from src.eval.extract_metrics import decide_prompt
-    from src.extract.gemini import GeminiExtractor, make_client
+    from src.extract.extractor import Extractor, make_backend
 
-    extractor = GeminiExtractor(make_client(), model=gemini_model, prompt_version=prompt_version)
-    result = evaluate(extractor, Path(gold.path))
+    extractor = Extractor(make_backend("vertex", model=gemini_model), prompt_version=prompt_version)
+    result = evaluate(extractor, Path(gold.path), price_per_token=True)
     Path(report.path).mkdir(parents=True, exist_ok=True)
     (Path(report.path) / "report.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
 
@@ -95,7 +95,7 @@ def register_prompt(
     import shutil
     from pathlib import Path
 
-    from src.extract.gemini import PROMPTS_DIR
+    from src.extract.extractor import PROMPTS_DIR
     from src.registry import register_version
 
     out = Path(bundle.path)
@@ -131,14 +131,14 @@ def notify_prompt_rejected(topic: str, prompt_version: str, reason: str, micro_f
 def extract_eval(
     prompt_version: str = "v2",
     gemini_model: str = "gemini-3.8-flash",
-    gold_uri: str = "gs://invoice-mlops-raw/gold/extract",
+    gold_uri: str = f"gs://{settings.RAW_BUCKET}/gold/extract",
     min_precision: float = 0.85,
     min_recall: float = 0.80,
     max_regression: float = 0.02,
-    registry_model: str = f"projects/{PROJECT}/locations/{REGION}/models/invoice-extractor",
+    registry_model: str = settings.EXTRACTOR_MODEL,
     alias: str = "production",
-    serving_image: str = f"{REGION}-docker.pkg.dev/{PROJECT}/invoice-mlops/api:latest",
-    topic: str = f"projects/{PROJECT}/topics/invoice-mlops-pipeline-alerts",
+    serving_image: str = f"{settings.IMAGE_REPO}/api:latest",
+    topic: str = settings.PIPELINE_ALERTS_TOPIC,
 ):
     gold = dsl.importer(artifact_uri=gold_uri, artifact_class=dsl.Dataset, reimport=False).set_display_name("gold-set")
     evaluated = evaluate_extract(

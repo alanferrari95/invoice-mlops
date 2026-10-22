@@ -52,12 +52,13 @@ def fake_gemini():
 
 @pytest.fixture
 def client(tiny_model, sink, fake_gemini):
-    from src.extract.gemini import GeminiExtractor
+    from src.extract.extractor import Extractor
+    from src.extract.gemini import GeminiBackend
 
     app = create_app(
         model_loader=lambda: LoadedModel(tiny_model, version="test-1", uri="memory://tiny"),
         sink=sink,
-        extractor_factory=lambda: GeminiExtractor(fake_gemini, prompt_version="v2"),
+        extractor_factory=lambda: Extractor(GeminiBackend(fake_gemini), prompt_version="v2"),
     )
     with TestClient(app) as c:
         yield c
