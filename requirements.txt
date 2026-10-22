@@ -1,16 +1,11 @@
-pandas
-scikit-learn
-xgboost
-joblib
-faker
-fastapi
-uvicorn
-google-cloud-storage
-gcsfs
-pandera
-google-cloud-bigquery
-httpx2
-pytest
-scipy
-google-cloud-pubsub
-db-dtypes
+# Serving image (src/api). Pinned so the API unpickles exactly what the training image produced.
+numpy==2.5.4
+pandas==3.1.0
+scikit-learn==1.9.1
+xgboost==3.4.1
+joblib==1.6.0
+fastapi==0.159.1
+uvicorn==0.54.0
+pandera==0.34.1
+google-cloud-storage==3.17.1
+google-cloud-bigquery==3.46.2
