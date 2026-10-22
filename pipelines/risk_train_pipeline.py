@@ -109,20 +109,18 @@ def register(
     registered: dsl.Output[dsl.Artifact],
 ) -> str:
     import json
-    import re
 
     from google.cloud import pubsub_v1
 
     from src.registry import register_version
 
-    job_label = re.sub(r"[^a-z0-9_-]", "-", pipeline_job.lower())[:63]
     version = register_version(
         model=registry_model,
         artifact_uri=model.uri,
         alias=alias,
         serving_image=serving_image,
         description=f"gold_f1={gold_f1:.4f}; {reason}",
-        labels={"pipeline_job": job_label},
+        labels={"pipeline_job": pipeline_job},
     )
     registered.uri = f"https://{registry_model.split('/')[3]}-aiplatform.googleapis.com/v1/{registry_model}@{version.version_id}"
     registered.metadata.update({"version_id": version.version_id, "alias": alias, "gold_f1": gold_f1})

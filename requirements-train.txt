@@ -1,5 +1,5 @@
-# Risk pipeline image (src/train, src/features, src/eval, src/registry).
-# Used by the Vertex Training custom jobs and by every KFP component of the risk pipeline.
+# Pipeline image (src/train, src/features, src/eval, src/registry, src/extract).
+# Used by the Vertex Training custom jobs and by every KFP component of both pipelines.
 numpy==2.5.4
 pandas==3.1.0
 scikit-learn==1.9.1
@@ -13,3 +13,5 @@ google-cloud-aiplatform==2.6.0
 google-auth==2.62.0
 requests==2.33.0
 kfp==2.17.0
+google-genai==2.32.0
+pypdf==6.21.2

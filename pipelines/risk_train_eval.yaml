@@ -588,14 +588,12 @@ deploymentSpec:
           \ *\n\ndef register(\n    model: dsl.Input[dsl.Model],\n    registry_model:\
           \ str,\n    alias: str,\n    serving_image: str,\n    gold_f1: float,\n\
           \    reason: str,\n    pipeline_job: str,\n    promoted_topic: str,\n  \
-          \  registered: dsl.Output[dsl.Artifact],\n) -> str:\n    import json\n \
-          \   import re\n\n    from google.cloud import pubsub_v1\n\n    from src.registry\
-          \ import register_version\n\n    job_label = re.sub(r\"[^a-z0-9_-]\", \"\
-          -\", pipeline_job.lower())[:63]\n    version = register_version(\n     \
-          \   model=registry_model,\n        artifact_uri=model.uri,\n        alias=alias,\n\
-          \        serving_image=serving_image,\n        description=f\"gold_f1={gold_f1:.4f};\
-          \ {reason}\",\n        labels={\"pipeline_job\": job_label},\n    )\n  \
-          \  registered.uri = f\"https://{registry_model.split('/')[3]}-aiplatform.googleapis.com/v1/{registry_model}@{version.version_id}\"\
+          \  registered: dsl.Output[dsl.Artifact],\n) -> str:\n    import json\n\n\
+          \    from google.cloud import pubsub_v1\n\n    from src.registry import\
+          \ register_version\n\n    version = register_version(\n        model=registry_model,\n\
+          \        artifact_uri=model.uri,\n        alias=alias,\n        serving_image=serving_image,\n\
+          \        description=f\"gold_f1={gold_f1:.4f}; {reason}\",\n        labels={\"\
+          pipeline_job\": pipeline_job},\n    )\n    registered.uri = f\"https://{registry_model.split('/')[3]}-aiplatform.googleapis.com/v1/{registry_model}@{version.version_id}\"\
           \n    registered.metadata.update({\"version_id\": version.version_id, \"\
           alias\": alias, \"gold_f1\": gold_f1})\n\n    # A new production model is\
           \ a release: this message triggers cloudbuild-model-deploy.yaml,\n    #\

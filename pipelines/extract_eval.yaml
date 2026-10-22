@@ -1,0 +1,532 @@
+# PIPELINE DEFINITION
+# Name: extract-eval
+# Inputs:
+#    alias: str [Default: 'production']
+#    gemini_model: str [Default: 'gemini-3.8-flash']
+#    gold_uri: str [Default: 'gs://invoice-mlops-raw/gold/extract']
+#    max_regression: float [Default: 0.02]
+#    min_precision: float [Default: 0.85]
+#    min_recall: float [Default: 0.8]
+#    prompt_version: str [Default: 'v2']
+#    registry_model: str [Default: 'projects/invoice-mlops/locations/europe-west4/models/invoice-extractor']
+#    serving_image: str [Default: 'europe-west4-docker.pkg.dev/invoice-mlops/invoice-mlops/api:latest']
+#    topic: str [Default: 'projects/invoice-mlops/topics/invoice-mlops-pipeline-alerts']
+components:
+  comp-condition-2:
+    dag:
+      tasks:
+        register-prompt:
+          cachingOptions: {}
+          componentRef:
+            name: comp-register-prompt
+          inputs:
+            artifacts:
+              report:
+                componentInputArtifact: pipelinechannel--evaluate-extract-report
+            parameters:
+              alias:
+                componentInputParameter: pipelinechannel--alias
+              gemini_model:
+                componentInputParameter: pipelinechannel--gemini_model
+              micro_f1:
+                componentInputParameter: pipelinechannel--evaluate-extract-micro_f1
+              pipeline_job:
+                runtimeValue:
+                  constant: '{{$.pipeline_job_name}}'
+              prompt_version:
+                componentInputParameter: pipelinechannel--prompt_version
+              reason:
+                componentInputParameter: pipelinechannel--evaluate-extract-reason
+              registry_model:
+                componentInputParameter: pipelinechannel--registry_model
+              serving_image:
+                componentInputParameter: pipelinechannel--serving_image
+          taskInfo:
+            name: register-prompt
+    inputDefinitions:
+      artifacts:
+        pipelinechannel--evaluate-extract-report:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        pipelinechannel--alias:
+          parameterType: STRING
+        pipelinechannel--evaluate-extract-decision:
+          parameterType: STRING
+        pipelinechannel--evaluate-extract-micro_f1:
+          parameterType: NUMBER_DOUBLE
+        pipelinechannel--evaluate-extract-reason:
+          parameterType: STRING
+        pipelinechannel--gemini_model:
+          parameterType: STRING
+        pipelinechannel--prompt_version:
+          parameterType: STRING
+        pipelinechannel--registry_model:
+          parameterType: STRING
+        pipelinechannel--serving_image:
+          parameterType: STRING
+  comp-condition-3:
+    dag:
+      tasks:
+        notify-prompt-rejected:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-notify-prompt-rejected
+          inputs:
+            parameters:
+              micro_f1:
+                componentInputParameter: pipelinechannel--evaluate-extract-micro_f1
+              pipeline_job:
+                runtimeValue:
+                  constant: '{{$.pipeline_job_name}}'
+              prompt_version:
+                componentInputParameter: pipelinechannel--prompt_version
+              reason:
+                componentInputParameter: pipelinechannel--evaluate-extract-reason
+              topic:
+                componentInputParameter: pipelinechannel--topic
+          taskInfo:
+            name: notify-rejected
+    inputDefinitions:
+      parameters:
+        pipelinechannel--evaluate-extract-decision:
+          parameterType: STRING
+        pipelinechannel--evaluate-extract-micro_f1:
+          parameterType: NUMBER_DOUBLE
+        pipelinechannel--evaluate-extract-reason:
+          parameterType: STRING
+        pipelinechannel--prompt_version:
+          parameterType: STRING
+        pipelinechannel--topic:
+          parameterType: STRING
+  comp-condition-branches-1:
+    dag:
+      tasks:
+        condition-2:
+          componentRef:
+            name: comp-condition-2
+          inputs:
+            artifacts:
+              pipelinechannel--evaluate-extract-report:
+                componentInputArtifact: pipelinechannel--evaluate-extract-report
+            parameters:
+              pipelinechannel--alias:
+                componentInputParameter: pipelinechannel--alias
+              pipelinechannel--evaluate-extract-decision:
+                componentInputParameter: pipelinechannel--evaluate-extract-decision
+              pipelinechannel--evaluate-extract-micro_f1:
+                componentInputParameter: pipelinechannel--evaluate-extract-micro_f1
+              pipelinechannel--evaluate-extract-reason:
+                componentInputParameter: pipelinechannel--evaluate-extract-reason
+              pipelinechannel--gemini_model:
+                componentInputParameter: pipelinechannel--gemini_model
+              pipelinechannel--prompt_version:
+                componentInputParameter: pipelinechannel--prompt_version
+              pipelinechannel--registry_model:
+                componentInputParameter: pipelinechannel--registry_model
+              pipelinechannel--serving_image:
+                componentInputParameter: pipelinechannel--serving_image
+          taskInfo:
+            name: gate-passed
+          triggerPolicy:
+            condition: inputs.parameter_values['pipelinechannel--evaluate-extract-decision']
+              == 'promote'
+        condition-3:
+          componentRef:
+            name: comp-condition-3
+          inputs:
+            parameters:
+              pipelinechannel--evaluate-extract-decision:
+                componentInputParameter: pipelinechannel--evaluate-extract-decision
+              pipelinechannel--evaluate-extract-micro_f1:
+                componentInputParameter: pipelinechannel--evaluate-extract-micro_f1
+              pipelinechannel--evaluate-extract-reason:
+                componentInputParameter: pipelinechannel--evaluate-extract-reason
+              pipelinechannel--prompt_version:
+                componentInputParameter: pipelinechannel--prompt_version
+              pipelinechannel--topic:
+                componentInputParameter: pipelinechannel--topic
+          taskInfo:
+            name: gate-failed
+          triggerPolicy:
+            condition: '!(inputs.parameter_values[''pipelinechannel--evaluate-extract-decision'']
+              == ''promote'')'
+    inputDefinitions:
+      artifacts:
+        pipelinechannel--evaluate-extract-report:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        pipelinechannel--alias:
+          parameterType: STRING
+        pipelinechannel--evaluate-extract-decision:
+          parameterType: STRING
+        pipelinechannel--evaluate-extract-micro_f1:
+          parameterType: NUMBER_DOUBLE
+        pipelinechannel--evaluate-extract-reason:
+          parameterType: STRING
+        pipelinechannel--gemini_model:
+          parameterType: STRING
+        pipelinechannel--prompt_version:
+          parameterType: STRING
+        pipelinechannel--registry_model:
+          parameterType: STRING
+        pipelinechannel--serving_image:
+          parameterType: STRING
+        pipelinechannel--topic:
+          parameterType: STRING
+  comp-evaluate-extract:
+    executorLabel: exec-evaluate-extract
+    inputDefinitions:
+      artifacts:
+        gold:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        alias:
+          parameterType: STRING
+        gemini_model:
+          parameterType: STRING
+        max_regression:
+          parameterType: NUMBER_DOUBLE
+        min_precision:
+          parameterType: NUMBER_DOUBLE
+        min_recall:
+          parameterType: NUMBER_DOUBLE
+        prompt_version:
+          parameterType: STRING
+        registry_model:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+        report:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        decision:
+          parameterType: STRING
+        micro_f1:
+          parameterType: NUMBER_DOUBLE
+        reason:
+          parameterType: STRING
+  comp-importer:
+    executorLabel: exec-importer
+    inputDefinitions:
+      parameters:
+        uri:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        artifact:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-notify-prompt-rejected:
+    executorLabel: exec-notify-prompt-rejected
+    inputDefinitions:
+      parameters:
+        micro_f1:
+          parameterType: NUMBER_DOUBLE
+        pipeline_job:
+          parameterType: STRING
+        prompt_version:
+          parameterType: STRING
+        reason:
+          parameterType: STRING
+        topic:
+          parameterType: STRING
+  comp-register-prompt:
+    executorLabel: exec-register-prompt
+    inputDefinitions:
+      artifacts:
+        report:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        alias:
+          parameterType: STRING
+        gemini_model:
+          parameterType: STRING
+        micro_f1:
+          parameterType: NUMBER_DOUBLE
+        pipeline_job:
+          parameterType: STRING
+        prompt_version:
+          parameterType: STRING
+        reason:
+          parameterType: STRING
+        registry_model:
+          parameterType: STRING
+        serving_image:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        bundle:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        Output:
+          parameterType: STRING
+deploymentSpec:
+  executors:
+    exec-evaluate-extract:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - evaluate_extract
+        command:
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef evaluate_extract(\n    gold: dsl.Input[dsl.Dataset],\n    prompt_version:\
+          \ str,\n    gemini_model: str,\n    registry_model: str,\n    alias: str,\n\
+          \    min_precision: float,\n    min_recall: float,\n    max_regression:\
+          \ float,\n    metrics: dsl.Output[dsl.Metrics],\n    report: dsl.Output[dsl.Artifact],\n\
+          ) -> NamedTuple(\"ExtractEvalOutputs\", [(\"decision\", str), (\"reason\"\
+          , str), (\"micro_f1\", float)]):\n    import json\n    from collections\
+          \ import namedtuple\n    from pathlib import Path\n\n    from src import\
+          \ registry\n    from src.eval.evaluate_extract import evaluate\n    from\
+          \ src.eval.extract_metrics import decide_prompt\n    from src.extract.gemini\
+          \ import GeminiExtractor, make_client\n\n    extractor = GeminiExtractor(make_client(),\
+          \ model=gemini_model, prompt_version=prompt_version)\n    result = evaluate(extractor,\
+          \ Path(gold.path))\n    Path(report.path).mkdir(parents=True, exist_ok=True)\n\
+          \    (Path(report.path) / \"report.json\").write_text(json.dumps(result,\
+          \ indent=2), encoding=\"utf-8\")\n\n    micro = result[\"report\"][\"micro\"\
+          ]\n    for name, values in result[\"report\"][\"fields\"].items():\n   \
+          \     metrics.log_metric(f\"{name}_precision\", values[\"precision\"])\n\
+          \        metrics.log_metric(f\"{name}_recall\", values[\"recall\"])\n  \
+          \  for key in (\"precision\", \"recall\", \"f1\"):\n        metrics.log_metric(f\"\
+          micro_{key}\", micro[key])\n    for key in (\"avg_prompt_tokens\", \"avg_output_tokens\"\
+          , \"latency_p95_ms\", \"usd_per_1000_docs_launch\"):\n        metrics.log_metric(key,\
+          \ result[\"usage\"][key])\n    metrics.log_metric(\"docs_failed\", result[\"\
+          usage\"][\"docs_failed\"])\n\n    champion_f1 = None\n    champion = registry.resolve(registry_model,\
+          \ alias) if registry.model_exists(registry_model) else None\n    if champion\
+          \ is not None:\n        champion_report = Path(champion.artifact_uri.replace(\"\
+          gs://\", \"/gcs/\", 1)) / \"report.json\"\n        if champion_report.is_file():\n\
+          \            champion_f1 = json.loads(champion_report.read_text())[\"report\"\
+          ][\"micro\"][\"f1\"]\n            metrics.log_metric(\"champion_micro_f1\"\
+          , champion_f1)\n            metrics.log_metric(\"champion_version\", int(champion.version_id))\n\
+          \n    d = decide_prompt(micro, champion_f1, min_precision, min_recall, max_regression)\n\
+          \    print(d.reason)\n    out = namedtuple(\"ExtractEvalOutputs\", [\"decision\"\
+          , \"reason\", \"micro_f1\"])\n    return out(\"promote\" if d.promote else\
+          \ \"reject\", d.reason, micro[\"f1\"])\n\n"
+        image: europe-west4-docker.pkg.dev/invoice-mlops/invoice-mlops/train:latest
+    exec-importer:
+      importer:
+        artifactUri:
+          runtimeParameter: uri
+        typeSchema:
+          schemaTitle: system.Dataset
+          schemaVersion: 0.0.1
+    exec-notify-prompt-rejected:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - notify_prompt_rejected
+        command:
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef notify_prompt_rejected(topic: str, prompt_version: str, reason:\
+          \ str, micro_f1: float, pipeline_job: str):\n    import json\n\n    from\
+          \ google.cloud import pubsub_v1\n\n    payload = {\"state\": \"REJECTED\"\
+          , \"prompt_version\": prompt_version, \"reason\": reason,\n            \
+          \   \"micro_f1\": micro_f1, \"pipeline_job\": pipeline_job}\n    pubsub_v1.PublisherClient().publish(topic,\
+          \ json.dumps(payload).encode(\"utf-8\"), kind=\"extract-gate\").result()\n\
+          \n"
+        image: europe-west4-docker.pkg.dev/invoice-mlops/invoice-mlops/train:latest
+    exec-register-prompt:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - register_prompt
+        command:
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef register_prompt(\n    report: dsl.Input[dsl.Artifact],\n    prompt_version:\
+          \ str,\n    gemini_model: str,\n    registry_model: str,\n    alias: str,\n\
+          \    serving_image: str,\n    micro_f1: float,\n    reason: str,\n    pipeline_job:\
+          \ str,\n    bundle: dsl.Output[dsl.Artifact],\n) -> str:\n    import shutil\n\
+          \    from pathlib import Path\n\n    from src.extract.gemini import PROMPTS_DIR\n\
+          \    from src.registry import register_version\n\n    out = Path(bundle.path)\n\
+          \    out.mkdir(parents=True, exist_ok=True)\n    shutil.copy(PROMPTS_DIR\
+          \ / f\"{prompt_version}.txt\", out / \"prompt.txt\")\n    shutil.copy(Path(report.path)\
+          \ / \"report.json\", out / \"report.json\")\n\n    version = register_version(\n\
+          \        model=registry_model,\n        artifact_uri=bundle.uri,\n     \
+          \   alias=alias,\n        serving_image=serving_image,\n        description=f\"\
+          prompt {prompt_version} on {gemini_model}: {reason}\",\n        labels={\"\
+          prompt_version\": prompt_version, \"gemini_model\": gemini_model, \"pipeline_job\"\
+          : pipeline_job},\n        display_name=\"invoice-extractor\",\n    )\n \
+          \   bundle.metadata.update({\"version_id\": version.version_id, \"prompt_version\"\
+          : prompt_version, \"micro_f1\": micro_f1})\n    return version.version_id\n\
+          \n"
+        image: europe-west4-docker.pkg.dev/invoice-mlops/invoice-mlops/train:latest
+pipelineInfo:
+  name: extract-eval
+root:
+  dag:
+    tasks:
+      condition-branches-1:
+        componentRef:
+          name: comp-condition-branches-1
+        dependentTasks:
+        - evaluate-extract
+        inputs:
+          artifacts:
+            pipelinechannel--evaluate-extract-report:
+              taskOutputArtifact:
+                outputArtifactKey: report
+                producerTask: evaluate-extract
+          parameters:
+            pipelinechannel--alias:
+              componentInputParameter: alias
+            pipelinechannel--evaluate-extract-decision:
+              taskOutputParameter:
+                outputParameterKey: decision
+                producerTask: evaluate-extract
+            pipelinechannel--evaluate-extract-micro_f1:
+              taskOutputParameter:
+                outputParameterKey: micro_f1
+                producerTask: evaluate-extract
+            pipelinechannel--evaluate-extract-reason:
+              taskOutputParameter:
+                outputParameterKey: reason
+                producerTask: evaluate-extract
+            pipelinechannel--gemini_model:
+              componentInputParameter: gemini_model
+            pipelinechannel--prompt_version:
+              componentInputParameter: prompt_version
+            pipelinechannel--registry_model:
+              componentInputParameter: registry_model
+            pipelinechannel--serving_image:
+              componentInputParameter: serving_image
+            pipelinechannel--topic:
+              componentInputParameter: topic
+        taskInfo:
+          name: condition-branches-1
+      evaluate-extract:
+        cachingOptions: {}
+        componentRef:
+          name: comp-evaluate-extract
+        dependentTasks:
+        - importer
+        inputs:
+          artifacts:
+            gold:
+              taskOutputArtifact:
+                outputArtifactKey: artifact
+                producerTask: importer
+          parameters:
+            alias:
+              componentInputParameter: alias
+            gemini_model:
+              componentInputParameter: gemini_model
+            max_regression:
+              componentInputParameter: max_regression
+            min_precision:
+              componentInputParameter: min_precision
+            min_recall:
+              componentInputParameter: min_recall
+            prompt_version:
+              componentInputParameter: prompt_version
+            registry_model:
+              componentInputParameter: registry_model
+        taskInfo:
+          name: evaluate-extract
+      importer:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-importer
+        inputs:
+          parameters:
+            uri:
+              componentInputParameter: gold_uri
+        taskInfo:
+          name: gold-set
+  inputDefinitions:
+    parameters:
+      alias:
+        defaultValue: production
+        isOptional: true
+        parameterType: STRING
+      gemini_model:
+        defaultValue: gemini-3.8-flash
+        isOptional: true
+        parameterType: STRING
+      gold_uri:
+        defaultValue: gs://invoice-mlops-raw/gold/extract
+        isOptional: true
+        parameterType: STRING
+      max_regression:
+        defaultValue: 0.02
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
+      min_precision:
+        defaultValue: 0.85
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
+      min_recall:
+        defaultValue: 0.8
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
+      prompt_version:
+        defaultValue: v2
+        isOptional: true
+        parameterType: STRING
+      registry_model:
+        defaultValue: projects/invoice-mlops/locations/europe-west4/models/invoice-extractor
+        isOptional: true
+        parameterType: STRING
+      serving_image:
+        defaultValue: europe-west4-docker.pkg.dev/invoice-mlops/invoice-mlops/api:latest
+        isOptional: true
+        parameterType: STRING
+      topic:
+        defaultValue: projects/invoice-mlops/topics/invoice-mlops-pipeline-alerts
+        isOptional: true
+        parameterType: STRING
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.17.0
