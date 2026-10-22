@@ -81,12 +81,10 @@ def _build_classifier(n_estimators: int, max_depth: int):
         )
 
 
-def main() -> None:
-    args = parse_args()
-    df = pd.read_csv(resolve_data_path(args.data_uri))
+def fit(df: pd.DataFrame, n_estimators: int, max_depth: int):
+    """Train on an 80/20 stratified split; return the model and its holdout metrics."""
     X = df[FEATURE_NAMES]
     y = df[TARGET]
-
     X_train, X_test, y_train, y_test = train_test_split(
         X,
         y,
@@ -95,48 +93,45 @@ def main() -> None:
         random_state=RANDOM_STATE,
     )
 
-    model = _build_classifier(args.n_estimators, args.max_depth)
+    model = _build_classifier(n_estimators, max_depth)
     model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
 
-    accuracy = float(accuracy_score(y_test, y_pred))
-    precision = float(precision_score(y_test, y_pred))
-    recall = float(recall_score(y_test, y_pred))
-    f1 = float(f1_score(y_test, y_pred))
-
-    print(f"accuracy: {accuracy:.4f}")
-    print(f"precision: {precision:.4f}")
-    print(f"recall: {recall:.4f}")
-    print(f"f1: {f1:.4f}")
-
-    out_dir = Path("/tmp/model-out")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    model_path = out_dir / "model.joblib"
-    metrics_path = out_dir / "metrics.json"
-    joblib.dump(model, model_path)
-
     metrics = {
-        "accuracy": accuracy,
-        "precision": precision,
-        "recall": recall,
-        "f1": f1,
+        "accuracy": float(accuracy_score(y_test, y_pred)),
+        "precision": float(precision_score(y_test, y_pred)),
+        "recall": float(recall_score(y_test, y_pred)),
+        "f1": float(f1_score(y_test, y_pred)),
         "n_train": int(len(X_train)),
         "n_test": int(len(X_test)),
         "feature_names": FEATURE_NAMES,
-        "n_estimators": args.n_estimators,
-        "max_depth": args.max_depth,
+        "n_estimators": n_estimators,
+        "max_depth": max_depth,
     }
-    metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    return model, metrics
+
+
+def save(model, metrics: dict, out_dir: Path) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    joblib.dump(model, out_dir / "model.joblib")
+    (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+
+
+def main() -> None:
+    args = parse_args()
+    df = pd.read_csv(resolve_data_path(args.data_uri))
+    model, metrics = fit(df, args.n_estimators, args.max_depth)
+    for key in ("accuracy", "precision", "recall", "f1"):
+        print(f"{key}: {metrics[key]:.4f}")
 
     if args.model_dir.startswith("gs://"):
+        out_dir = Path("/tmp/model-out")
+        save(model, metrics, out_dir)
         prefix = args.model_dir.rstrip("/")
-        upload_to_gcs(model_path, f"{prefix}/model.joblib")
-        upload_to_gcs(metrics_path, f"{prefix}/metrics.json")
+        upload_to_gcs(out_dir / "model.joblib", f"{prefix}/model.joblib")
+        upload_to_gcs(out_dir / "metrics.json", f"{prefix}/metrics.json")
     else:
-        dest = Path(args.model_dir)
-        dest.mkdir(parents=True, exist_ok=True)
-        model_path.replace(dest / "model.joblib")
-        metrics_path.replace(dest / "metrics.json")
+        save(model, metrics, Path(args.model_dir))
 
 
 if __name__ == "__main__":
