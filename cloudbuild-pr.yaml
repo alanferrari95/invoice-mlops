@@ -5,8 +5,8 @@ steps:
       - -c
       - |
         set -euo pipefail
-        pip install -r requirements.txt pytest "kfp==2.17.0"
-        PYTHONPATH=. pytest tests/test_metrics_gate.py tests/test_score_schema.py tests/test_score_validation.py -q
+        pip install -r requirements-dev.txt
+        PYTHONPATH=. pytest -q
         python pipelines/risk_train_pipeline.py
 options:
   logging: CLOUD_LOGGING_ONLY
