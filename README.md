@@ -53,7 +53,7 @@ Read the [architecture doc](docs/architecture.md) for the flows and design decis
 | BigQuery features, gold-set gate vs. champion, Model Registry promotion, revisions pinned to a Registry version | ✅ | — |
 | Weekly Cloud Scheduler run, daily drift job (PSI/KS) that alerts and retrains | ✅ | — |
 | `/extract` (Gemini, Ollama or Gemini API), page filter, per-field precision/recall, prompt gate | ✅ | — |
-| Terraform for every resource, least-privilege service accounts, SHAP | ✅ | — (`terraform plan` not run) |
+| Terraform for every resource, least-privilege service accounts, SHAP | ✅ (`terraform validate` + `fmt` on every PR) | — (`plan`/`apply` not run) |
 
 "Ran on GCP" means the reference deployment in project `invoice-mlops`. What is not ticked is written and unit-tested (73 tests, with fakes for BigQuery, Pub/Sub, Vertex AI and the LLM), but has not been executed against the cloud. [Evidence log](docs/evidence.md).
 

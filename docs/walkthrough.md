@@ -193,7 +193,7 @@ Contents: [1 Data](#1-data-and-labels) · [2 Training](#2-training) · [3 Featur
 
 ## 16. Tests without the cloud
 
-73 tests run in CI and on a laptop with no GCP access: fakes for BigQuery (sink), Pub/Sub and Vertex (monkeypatched functions), the Registry (fake fetch), and the LLM (a fake Gemini client that answers from the gold labels only if the page filter kept the right page; a fake Ollama transport). The pipelines are compiled and their structure is asserted. The Cloud Build YAMLs are parsed.
+73 tests run in CI and on a laptop with no GCP access: fakes for BigQuery (sink), Pub/Sub and Vertex (monkeypatched functions), the Registry (fake fetch), and the LLM (a fake Gemini client that answers from the gold labels only if the page filter kept the right page; a fake Ollama transport). The pipelines are compiled and their structure is asserted. The Cloud Build YAMLs are parsed. The PR build also runs `terraform fmt -check` and `terraform validate` offline (no backend, no credentials).
 
 **Interview question.** *"What do your tests not cover?"* IAM and networking (only a real `plan`/`apply` shows those), the actual LLM quality (only an evaluation run against the provider shows it), and Vertex runtime behaviour (artifact paths, FUSE mounts). Those need the cloud runs listed in `docs/evidence.md`.
 
