@@ -1,0 +1,4 @@
+# Offline reports (SHAP plots). Not needed by CI or any image.
+-r requirements-dev.txt
+shap==0.54.1
+matplotlib==3.11.2
