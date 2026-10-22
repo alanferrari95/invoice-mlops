@@ -4,6 +4,7 @@ substitutions:
   _REGION: europe-west4
   _REPO: europe-west4-docker.pkg.dev/invoice-mlops/invoice-mlops
   _REGISTRY_MODEL: projects/invoice-mlops/locations/europe-west4/models/429981614227849216
+  _EXTRACTOR_MODEL: projects/invoice-mlops/locations/europe-west4/models/invoice-extractor
   _TEMPLATES: gs://invoice-mlops-artifacts/pipelines
 
 steps:
@@ -19,6 +20,7 @@ steps:
         pip install -r requirements-dev.txt
         PYTHONPATH=. pytest -q
         PYTHONPATH=. python pipelines/risk_train_pipeline.py
+        PYTHONPATH=. python pipelines/extract_eval_pipeline.py
 
   - name: gcr.io/cloud-builders/docker
     id: build-train
@@ -48,7 +50,8 @@ steps:
         done
         docker push ${_REPO}/api:$SHORT_SHA
 
-  # The revision is pinned to the model version that holds the `production` alias right now.
+  # The revision is pinned to the risk-model version and the extractor (prompt) version that
+  # hold the `production` alias right now.
   - name: gcr.io/cloud-builders/gcloud
     id: deploy-api
     entrypoint: bash
@@ -57,13 +60,14 @@ steps:
       - |
         set -euo pipefail
         VERSION=$(bash scripts/registry_version.sh production)
-        echo "model version for this revision: $$VERSION"
+        EXTRACTOR_VERSION=$(MODEL_ID=invoice-extractor bash scripts/registry_version.sh production)
+        echo "risk model v$$VERSION, extractor v$$EXTRACTOR_VERSION"
         gcloud run deploy invoice-mlops-api \
           --image=${_REPO}/api:$SHORT_SHA \
           --region=${_REGION} \
           --service-account=invoice-mlops-work@invoice-mlops.iam.gserviceaccount.com \
           --clear-secrets \
-          --update-env-vars=REGISTRY_MODEL=${_REGISTRY_MODEL},MODEL_VERSION_ID=$$VERSION \
+          --update-env-vars=REGISTRY_MODEL=${_REGISTRY_MODEL},MODEL_VERSION_ID=$$VERSION,EXTRACTOR_REGISTRY_MODEL=${_EXTRACTOR_MODEL},EXTRACTOR_VERSION_ID=$$EXTRACTOR_VERSION \
           --min-instances=0 \
           --port=8080 \
           --allow-unauthenticated \
@@ -88,6 +92,8 @@ steps:
       - |
         set -euo pipefail
         gcloud storage cp data/gold/risk_gold.csv gs://invoice-mlops-raw/gold/risk_gold.csv
+        gcloud storage rsync --recursive --delete-unmatched-destination-objects           data/gold/extract gs://invoice-mlops-raw/gold/extract
+        gcloud storage cp pipelines/extract_eval.yaml ${_TEMPLATES}/extract_eval.yaml
         gcloud storage cp pipelines/risk_train_eval.yaml ${_TEMPLATES}/risk_train_eval-$SHORT_SHA.yaml
         gcloud storage cp pipelines/risk_train_eval.yaml ${_TEMPLATES}/risk_train_eval.yaml
 
