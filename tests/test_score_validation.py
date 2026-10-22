@@ -77,3 +77,20 @@ def test_explain_returns_shap_values_that_add_up_to_the_margin(client, tiny_mode
 
 def test_explanation_is_opt_in(client):
     assert client.post("/score", json=VALID_PAYLOAD).json()["explanation"] is None
+
+
+def test_sink_is_chosen_by_env(monkeypatch, capsys):
+    from src.api.main import BigQuerySink, NullSink, StdoutSink, make_sink
+
+    monkeypatch.setenv("LOG_SINK", "stdout")
+    sink = make_sink()
+    assert isinstance(sink, StdoutSink)
+    sink.insert("t", [{"a": 1}])
+    assert '"table": "t"' in capsys.readouterr().out
+    monkeypatch.setenv("LOG_SINK", "none")
+    assert isinstance(make_sink(), NullSink)
+    monkeypatch.delenv("LOG_SINK")
+    assert isinstance(make_sink(), BigQuerySink)
+    monkeypatch.setenv("LOG_SINK", "kafka")
+    with pytest.raises(ValueError):
+        make_sink()

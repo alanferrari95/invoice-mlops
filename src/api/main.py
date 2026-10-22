@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional, Protocol
 
+import json
+
 import joblib
 import pandas as pd
 import pandera.pandas as pa
@@ -18,12 +20,12 @@ from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from pandera.errors import SchemaError
 from pydantic import BaseModel
 
-from src import registry
+from src import registry, settings
 from src.registry import ModelFetch
 
 APP_VERSION = "0.3.0"
-PREDICTIONS_TABLE = os.getenv("PREDICTIONS_TABLE", "invoice-mlops.invoice_mlops.predictions")
-EXTRACTIONS_TABLE = os.getenv("EXTRACTIONS_TABLE", "invoice-mlops.invoice_mlops.extractions")
+PREDICTIONS_TABLE = settings.PREDICTIONS_TABLE
+EXTRACTIONS_TABLE = settings.EXTRACTIONS_TABLE
 MAX_PDF_BYTES = 5 * 1024 * 1024
 
 logger = logging.getLogger(__name__)
@@ -94,6 +96,27 @@ class BigQuerySink:
             logger.error("BigQuery insert_rows_json errors for %s: %s", table, errors)
 
 
+class StdoutSink:
+    """One JSON line per row on stdout (local runs; Cloud Logging would also pick it up)."""
+
+    def insert(self, table: str, rows: list[dict]) -> None:
+        for row in rows:
+            print(json.dumps({"table": table, **row}), flush=True)
+
+
+class NullSink:
+    def insert(self, table: str, rows: list[dict]) -> None:
+        pass
+
+
+def make_sink() -> RowSink:
+    kind = os.getenv("LOG_SINK", "bigquery")
+    sinks = {"bigquery": BigQuerySink, "stdout": StdoutSink, "none": NullSink}
+    if kind not in sinks:
+        raise ValueError(f"LOG_SINK must be one of {sorted(sinks)}, got {kind!r}")
+    return sinks[kind]()
+
+
 def _download_gcs(uri: str, dest: Path) -> Path:
     from google.cloud import storage
 
@@ -143,10 +166,13 @@ def prompt_version_from_env(fetch: Optional[ModelFetch] = None) -> str:
 
 
 def make_extractor():
-    from src.extract.gemini import GeminiExtractor, make_client
+    """EXTRACT_BACKEND picks the LLM: vertex (default), gemini-api or ollama. EXTRACT_BACKEND=off
+    serves /score only, so the API runs with no LLM at all."""
+    if os.getenv("EXTRACT_BACKEND") == "off":
+        return None
+    from src.extract.extractor import Extractor, make_backend
 
-    return GeminiExtractor(make_client(), model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
-                           prompt_version=prompt_version_from_env())
+    return Extractor(make_backend(), prompt_version=prompt_version_from_env())
 
 
 def shap_contributions(model, X: pd.DataFrame) -> tuple[dict[str, float], float]:
@@ -175,7 +201,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.loaded = model_loader()
-        app.state.sink = sink if sink is not None else BigQuerySink()
+        app.state.sink = sink if sink is not None else make_sink()
         app.state.extractor = extractor_factory()
         yield
 
@@ -206,6 +232,8 @@ def create_app(
             raise HTTPException(status_code=413, detail=f"PDF larger than {MAX_PDF_BYTES} bytes")
 
         extractor = request.app.state.extractor
+        if extractor is None:
+            raise HTTPException(status_code=503, detail="extraction disabled (EXTRACT_BACKEND=off)")
         t0 = time.perf_counter()
         try:
             result = extractor.extract(pdf)

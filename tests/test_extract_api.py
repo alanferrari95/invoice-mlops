@@ -43,3 +43,17 @@ def test_prompt_version_comes_from_registry_label(monkeypatch):
         return {"versionId": "2", "artifactUri": "gs://b/p", "labels": {"prompt_version": "v2"}}
 
     assert prompt_version_from_env(fetch=fetch) == "v2"
+
+
+def test_extraction_can_be_switched_off(tiny_model):
+    from fastapi.testclient import TestClient
+
+    from src.api.main import LoadedModel, create_app
+    from tests.conftest import MemorySink
+
+    app = create_app(model_loader=lambda: LoadedModel(tiny_model, "t", "memory://"), sink=MemorySink(),
+                     extractor_factory=lambda: None)
+    with TestClient(app) as c:
+        _, pdf = _pdf(0)
+        assert c.post("/extract", files={"file": ("x.pdf", pdf, "application/pdf")}).status_code == 503
+        assert c.get("/version").json()["prompt_version"] is None
