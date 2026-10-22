@@ -24,6 +24,9 @@ steps:
   - name: gcr.io/cloud-builders/gcloud
     id: canary-20
     entrypoint: bash
+    env:
+      - PROJECT=$PROJECT_ID
+      - REGION=${_REGION}
     args: [scripts/canary.sh]
 
 options:

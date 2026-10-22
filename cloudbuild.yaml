@@ -1,11 +1,13 @@
 # Merge to main: test -> build/push images -> deploy a 20% canary -> publish the
-# pipeline template -> submit the staging pipeline run.
+# pipeline templates and gold sets -> submit the staging pipeline run.
+# Everything is derived from $PROJECT_ID, so the same file works in any project.
 substitutions:
   _REGION: europe-west4
-  _REPO: europe-west4-docker.pkg.dev/invoice-mlops/invoice-mlops
-  _REGISTRY_MODEL: projects/invoice-mlops/locations/europe-west4/models/429981614227849216
-  _EXTRACTOR_MODEL: projects/invoice-mlops/locations/europe-west4/models/invoice-extractor
-  _TEMPLATES: gs://invoice-mlops-artifacts/pipelines
+  _REPO: ${_REGION}-docker.pkg.dev/${PROJECT_ID}/invoice-mlops
+  _REGISTRY_MODEL: projects/${PROJECT_ID}/locations/${_REGION}/models/risk-classifier
+  _EXTRACTOR_MODEL: projects/${PROJECT_ID}/locations/${_REGION}/models/invoice-extractor
+  _TEMPLATES: gs://${PROJECT_ID}-artifacts/pipelines
+  _WORK_SA: invoice-mlops-work@${PROJECT_ID}.iam.gserviceaccount.com
 
 steps:
   - name: python:3.12-slim
@@ -13,6 +15,8 @@ steps:
     entrypoint: bash
     env:
       - PIPELINE_IMAGE=${_REPO}/train:$SHORT_SHA
+      - GOOGLE_CLOUD_PROJECT=$PROJECT_ID
+      - REGION=${_REGION}
     args:
       - -c
       - |
@@ -51,36 +55,51 @@ steps:
         docker push ${_REPO}/api:$SHORT_SHA
 
   # The revision is pinned to the risk-model version and the extractor (prompt) version that
-  # hold the `production` alias right now.
+  # hold the `production` alias right now. A project without them yet (fresh bootstrap) skips
+  # the deploy instead of failing: run the two pipelines once, then the next merge deploys.
   - name: gcr.io/cloud-builders/gcloud
     id: deploy-api
     entrypoint: bash
+    env:
+      - PROJECT=$PROJECT_ID
+      - REGION=${_REGION}
     args:
       - -c
       - |
         set -euo pipefail
-        VERSION=$(bash scripts/registry_version.sh production)
-        EXTRACTOR_VERSION=$(MODEL_ID=invoice-extractor bash scripts/registry_version.sh production)
+        if ! VERSION=$(bash scripts/registry_version.sh production) \
+           || ! EXTRACTOR_VERSION=$(MODEL_ID=invoice-extractor bash scripts/registry_version.sh production); then
+          echo "No production model or extractor in the Registry yet: skipping deploy."
+          echo "Bootstrap: python -m src.launcher --trigger manual; python pipelines/submit_extract_eval.py --prompt-version v2"
+          exit 0
+        fi
         echo "risk model v$$VERSION, extractor v$$EXTRACTOR_VERSION"
         gcloud run deploy invoice-mlops-api \
           --image=${_REPO}/api:$SHORT_SHA \
           --region=${_REGION} \
-          --service-account=invoice-mlops-work@invoice-mlops.iam.gserviceaccount.com \
+          --service-account=${_WORK_SA} \
           --clear-secrets \
           --update-env-vars=REGISTRY_MODEL=${_REGISTRY_MODEL},MODEL_VERSION_ID=$$VERSION,EXTRACTOR_REGISTRY_MODEL=${_EXTRACTOR_MODEL},EXTRACTOR_VERSION_ID=$$EXTRACTOR_VERSION \
           --min-instances=0 \
           --port=8080 \
           --no-traffic \
           --tag=sha-$SHORT_SHA
+        touch /workspace/.deployed
 
   # The new revision starts at 0%; this moves it to a 20% canary next to the stable one.
   # Promote with scripts/promote.sh, roll back with scripts/rollback.sh (no rebuild).
   - name: gcr.io/cloud-builders/gcloud
     id: canary-20
     entrypoint: bash
-    args: [scripts/canary.sh]
+    env:
+      - PROJECT=$PROJECT_ID
+      - REGION=${_REGION}
+    args:
+      - -c
+      - |
+        if [ -f /workspace/.deployed ]; then bash scripts/canary.sh; else echo "nothing deployed"; fi
 
-  # Versioned gold set and pipeline template, so scheduled and drift-triggered runs use
+  # Versioned gold sets and pipeline templates, so scheduled and drift-triggered runs use
   # exactly what was merged.
   - name: gcr.io/cloud-builders/gcloud
     id: publish-template
@@ -90,11 +109,12 @@ steps:
       - -c
       - |
         set -euo pipefail
-        gcloud storage cp data/gold/risk_gold.csv gs://invoice-mlops-raw/gold/risk_gold.csv
-        gcloud storage rsync --recursive --delete-unmatched-destination-objects           data/gold/extract gs://invoice-mlops-raw/gold/extract
-        gcloud storage cp pipelines/extract_eval.yaml ${_TEMPLATES}/extract_eval.yaml
+        gcloud storage cp data/gold/risk_gold.csv gs://${PROJECT_ID}-raw/gold/risk_gold.csv
+        gcloud storage rsync --recursive --delete-unmatched-destination-objects \
+          data/gold/extract gs://${PROJECT_ID}-raw/gold/extract
         gcloud storage cp pipelines/risk_train_eval.yaml ${_TEMPLATES}/risk_train_eval-$SHORT_SHA.yaml
         gcloud storage cp pipelines/risk_train_eval.yaml ${_TEMPLATES}/risk_train_eval.yaml
+        gcloud storage cp pipelines/extract_eval.yaml ${_TEMPLATES}/extract_eval.yaml
 
   # Cloud Run Jobs resolve the image digest when they are updated, not on every execution.
   - name: gcr.io/cloud-builders/gcloud
@@ -119,6 +139,8 @@ steps:
     entrypoint: bash
     env:
       - SHORT_SHA=$SHORT_SHA
+      - GOOGLE_CLOUD_PROJECT=$PROJECT_ID
+      - REGION=${_REGION}
     args:
       - -c
       - |
@@ -132,3 +154,4 @@ images:
   - ${_REPO}/monitor:$SHORT_SHA
 options:
   logging: CLOUD_LOGGING_ONLY
+  dynamicSubstitutions: true
