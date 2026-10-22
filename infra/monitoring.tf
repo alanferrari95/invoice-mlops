@@ -19,33 +19,22 @@ resource "google_project_service" "scheduler" {
 
 # --- Pub/Sub ---------------------------------------------------------------
 
-import {
-  to = google_pubsub_topic.pipeline_alerts
-  id = "projects/invoice-mlops/topics/invoice-mlops-pipeline-alerts"
-}
-
 resource "google_pubsub_topic" "pipeline_alerts" {
   name = "invoice-mlops-pipeline-alerts"
-}
-
-import {
-  to = google_pubsub_topic.drift_alerts
-  id = "projects/invoice-mlops/topics/invoice-mlops-drift-alerts"
 }
 
 resource "google_pubsub_topic" "drift_alerts" {
   name = "invoice-mlops-drift-alerts"
 }
 
-import {
-  to = google_pubsub_subscription.drift_alerts_debug
-  id = "projects/invoice-mlops/subscriptions/drift-alerts-debug"
-}
-
 # Pull subscription used to read alerts by hand (gcloud pubsub subscriptions pull).
 resource "google_pubsub_subscription" "drift_alerts_debug" {
-  name  = "drift-alerts-debug"
-  topic = google_pubsub_topic.drift_alerts.id
+  name                       = "drift-alerts-debug"
+  topic                      = google_pubsub_topic.drift_alerts.id
+  message_retention_duration = "86400s"
+  expiration_policy {
+    ttl = "2678400s"
+  }
 }
 
 resource "google_pubsub_topic" "model_promoted" {
