@@ -7,9 +7,17 @@ terraform {
   }
 }
 
+locals {
+  project       = "invoice-mlops"
+  region        = "europe-west4"
+  image_repo    = "${local.region}-docker.pkg.dev/${local.project}/invoice-mlops"
+  risk_model_id = "429981614227849216" # Vertex AI Model Registry: risk-classifier
+  work_member   = "serviceAccount:${google_service_account.work.email}"
+}
+
 provider "google" {
-  project = "invoice-mlops"
-  region  = "europe-west4"
+  project = local.project
+  region  = local.region
 }
 
 resource "google_storage_bucket" "raw" {
@@ -29,7 +37,7 @@ resource "google_storage_bucket" "artifacts" {
 resource "google_service_account" "work" {
   account_id   = "invoice-mlops-work"
   display_name = "invoice-mlops work"
-  description  = "SA de trabajo — sin key JSON"
+  description  = "Work service account, no JSON key"
 }
 
 resource "google_storage_bucket_iam_member" "raw_object_admin" {

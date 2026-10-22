@@ -1,4 +1,4 @@
-# Drift job image (src/monitoring).
+# Monitoring image: the drift job (src/monitoring) and the pipeline launcher (src/launcher.py).
 numpy==2.5.4
 pandas==3.1.0
 scikit-learn==1.9.1
@@ -9,3 +9,6 @@ google-cloud-storage==3.17.1
 google-cloud-bigquery==3.46.2
 db-dtypes==1.8.0
 google-cloud-pubsub==2.43.0
+google-cloud-aiplatform==2.6.0
+google-auth==2.62.0
+requests==2.33.0
