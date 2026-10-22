@@ -48,6 +48,7 @@ def test_logging_failure_does_not_break_scoring(tiny_model):
     app = create_app(
         model_loader=lambda: LoadedModel(tiny_model, version="test-1", uri="memory://tiny"),
         sink=MemorySink(fail=True),
+        extractor_factory=lambda: None,
     )
     with TestClient(app) as c:
         assert c.post("/score", json=VALID_PAYLOAD).status_code == 200
