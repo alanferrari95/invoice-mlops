@@ -1,7 +1,9 @@
 FROM python:3.12-slim
 WORKDIR /app
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONUNBUFFERED=1 PYTHONPATH=/app
 COPY requirements-train.txt .
 RUN pip install --no-cache-dir -r requirements-train.txt
 COPY src/ /app/src/
+# Default entrypoint is the training CLI (Vertex Training custom jobs).
+# KFP components run on the same image with their own command.
 ENTRYPOINT ["python", "src/train/train.py"]

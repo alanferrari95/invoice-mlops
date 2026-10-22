@@ -1,0 +1,30 @@
+# Model release, no code change: triggered by a message on the invoice-mlops-model-promoted
+# topic, which the pipeline's register step publishes when a version gets the `production`
+# alias. It creates a revision with the same image pinned to the new model version and puts
+# it at 20%. Promote or roll back with the usual scripts.
+substitutions:
+  _VERSION: $(body.message.attributes.version_id)
+  _REGION: europe-west4
+
+steps:
+  - name: gcr.io/cloud-builders/gcloud
+    id: deploy-model-version
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        test -n "${_VERSION}" || { echo "message has no version_id attribute"; exit 1; }
+        gcloud run services update invoice-mlops-api \
+          --region=${_REGION} \
+          --update-env-vars=MODEL_VERSION_ID=${_VERSION} \
+          --no-traffic \
+          --tag=model-v${_VERSION}
+
+  - name: gcr.io/cloud-builders/gcloud
+    id: canary-20
+    entrypoint: bash
+    args: [scripts/canary.sh]
+
+options:
+  logging: CLOUD_LOGGING_ONLY

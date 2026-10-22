@@ -9,3 +9,5 @@ uvicorn==0.54.0
 pandera==0.34.1
 google-cloud-storage==3.17.1
 google-cloud-bigquery==3.46.2
+google-auth==2.62.0
+requests==2.33.0

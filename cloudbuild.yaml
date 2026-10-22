@@ -1,44 +1,67 @@
+# Merge to main: test -> build/push images -> deploy a 20% canary -> publish the
+# pipeline template -> submit the staging pipeline run.
+substitutions:
+  _REGION: europe-west4
+  _REPO: europe-west4-docker.pkg.dev/invoice-mlops/invoice-mlops
+  _REGISTRY_MODEL: projects/invoice-mlops/locations/europe-west4/models/429981614227849216
+  _TEMPLATES: gs://invoice-mlops-artifacts/pipelines
+
 steps:
   - name: python:3.12-slim
     id: test-and-compile
     entrypoint: bash
+    env:
+      - PIPELINE_IMAGE=${_REPO}/train:$SHORT_SHA
     args:
       - -c
       - |
         set -euo pipefail
         pip install -r requirements-dev.txt
         PYTHONPATH=. pytest -q
-        python pipelines/risk_train_pipeline.py
+        PYTHONPATH=. python pipelines/risk_train_pipeline.py
+
+  - name: gcr.io/cloud-builders/docker
+    id: build-train
+    waitFor: [test-and-compile]
+    args: [build, -f, Dockerfile.train, -t, "${_REPO}/train:$SHORT_SHA", -t, "${_REPO}/train:latest", .]
 
   - name: gcr.io/cloud-builders/docker
     id: build-api
-    args:
-      - build
-      - -t
-      - europe-west4-docker.pkg.dev/invoice-mlops/invoice-mlops/api:$SHORT_SHA
-      - .
+    waitFor: [test-and-compile]
+    args: [build, -t, "${_REPO}/api:$SHORT_SHA", .]
 
   - name: gcr.io/cloud-builders/docker
-    id: push-api
+    id: push
+    entrypoint: bash
     args:
-      - push
-      - europe-west4-docker.pkg.dev/invoice-mlops/invoice-mlops/api:$SHORT_SHA
+      - -c
+      - |
+        set -euo pipefail
+        docker push ${_REPO}/train:$SHORT_SHA
+        docker push ${_REPO}/train:latest
+        docker push ${_REPO}/api:$SHORT_SHA
 
+  # The revision is pinned to the model version that holds the `production` alias right now.
   - name: gcr.io/cloud-builders/gcloud
     id: deploy-api
+    entrypoint: bash
     args:
-      - run
-      - deploy
-      - invoice-mlops-api
-      - --image=europe-west4-docker.pkg.dev/invoice-mlops/invoice-mlops/api:$SHORT_SHA
-      - --region=europe-west4
-      - --service-account=invoice-mlops-work@invoice-mlops.iam.gserviceaccount.com
-      - --set-secrets=MODEL_URI=MODEL_URI:latest
-      - --min-instances=0
-      - --port=8080
-      - --allow-unauthenticated
-      - --no-traffic
-      - --tag=sha-$SHORT_SHA
+      - -c
+      - |
+        set -euo pipefail
+        VERSION=$(bash scripts/registry_version.sh production)
+        echo "model version for this revision: $$VERSION"
+        gcloud run deploy invoice-mlops-api \
+          --image=${_REPO}/api:$SHORT_SHA \
+          --region=${_REGION} \
+          --service-account=invoice-mlops-work@invoice-mlops.iam.gserviceaccount.com \
+          --clear-secrets \
+          --update-env-vars=REGISTRY_MODEL=${_REGISTRY_MODEL},MODEL_VERSION_ID=$$VERSION \
+          --min-instances=0 \
+          --port=8080 \
+          --allow-unauthenticated \
+          --no-traffic \
+          --tag=sha-$SHORT_SHA
 
   # The new revision starts at 0%; this moves it to a 20% canary next to the stable one.
   # Promote with scripts/promote.sh, roll back with scripts/rollback.sh (no rebuild).
@@ -47,17 +70,35 @@ steps:
     entrypoint: bash
     args: [scripts/canary.sh]
 
-  - name: python:3.12-slim
-    id: submit-staging-pipeline
+  # Versioned gold set and pipeline template, so scheduled and drift-triggered runs use
+  # exactly what was merged.
+  - name: gcr.io/cloud-builders/gcloud
+    id: publish-template
+    waitFor: [push]
     entrypoint: bash
     args:
       - -c
       - |
         set -euo pipefail
-        pip install "google-cloud-aiplatform[pipelines]"
+        gcloud storage cp data/gold/risk_gold.csv gs://invoice-mlops-raw/gold/risk_gold.csv
+        gcloud storage cp pipelines/risk_train_eval.yaml ${_TEMPLATES}/risk_train_eval-$SHORT_SHA.yaml
+        gcloud storage cp pipelines/risk_train_eval.yaml ${_TEMPLATES}/risk_train_eval.yaml
+
+  - name: python:3.12-slim
+    id: submit-staging-pipeline
+    waitFor: [publish-template]
+    entrypoint: bash
+    env:
+      - SHORT_SHA=$SHORT_SHA
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        pip install "google-cloud-aiplatform[pipelines]==2.6.0"
         python pipelines/submit_staging.py
 
 images:
-  - europe-west4-docker.pkg.dev/invoice-mlops/invoice-mlops/api:$SHORT_SHA
+  - ${_REPO}/api:$SHORT_SHA
+  - ${_REPO}/train:$SHORT_SHA
 options:
   logging: CLOUD_LOGGING_ONLY

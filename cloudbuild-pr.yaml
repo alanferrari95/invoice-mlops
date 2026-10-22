@@ -7,6 +7,6 @@ steps:
         set -euo pipefail
         pip install -r requirements-dev.txt
         PYTHONPATH=. pytest -q
-        python pipelines/risk_train_pipeline.py
+        PYTHONPATH=. python pipelines/risk_train_pipeline.py
 options:
   logging: CLOUD_LOGGING_ONLY

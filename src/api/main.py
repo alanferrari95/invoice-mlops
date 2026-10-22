@@ -18,6 +18,9 @@ from fastapi import FastAPI, HTTPException, Request
 from pandera.errors import SchemaError
 from pydantic import BaseModel
 
+from src import registry
+from src.registry import ModelFetch
+
 APP_VERSION = "0.3.0"
 PREDICTIONS_TABLE = os.getenv("PREDICTIONS_TABLE", "invoice-mlops.invoice_mlops.predictions")
 
@@ -101,7 +104,21 @@ def load_model_from_uri(uri: str, version: str) -> LoadedModel:
     return LoadedModel(model=joblib.load(path), version=version, uri=uri)
 
 
-def load_model() -> LoadedModel:
+def load_model(fetch: Optional[ModelFetch] = None) -> LoadedModel:
+    """Production: a Model Registry version. Local/tests: MODEL_URI.
+
+    Each Cloud Run revision is deployed with MODEL_VERSION_ID pinned (resolved from the
+    `production` alias at deploy time), so a revision always serves the same model and a
+    traffic rollback also rolls back the model. MODEL_ALIAS is the fallback reference.
+    """
+    registry_model = os.getenv("REGISTRY_MODEL")
+    if registry_model:
+        ref = os.getenv("MODEL_VERSION_ID") or os.getenv("MODEL_ALIAS", "production")
+        version = registry.resolve(registry_model, ref, **({"fetch": fetch} if fetch else {}))
+        if version is None:
+            raise RuntimeError(f"No version of {registry_model} matches '{ref}'")
+        logger.info("Serving %s@%s (version %s)", registry_model, ref, version.version_id)
+        return load_model_from_uri(version.model_uri, version.label)
     uri = os.environ.get("MODEL_URI", "models/model.joblib")
     return load_model_from_uri(uri, os.getenv("MODEL_VERSION", "unversioned"))
 

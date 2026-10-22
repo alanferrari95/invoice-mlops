@@ -1,5 +1,6 @@
 """Generate a synthetic invoice dataset for risk labeling."""
 
+import argparse
 from pathlib import Path
 
 import numpy as np
@@ -15,10 +16,17 @@ LINES_MISMATCH_FRAC = 0.12  # ~88% match
 LABEL_NOISE_FRAC = 0.08
 
 
-def generate_dataset() -> pd.DataFrame:
+def generate_dataset(
+    n_invoices: int = N_INVOICES, seed: int = SEED, label_noise: float = LABEL_NOISE_FRAC
+) -> pd.DataFrame:
+    """Synthetic invoices with rule-bootstrapped labels.
+
+    label_noise flips that fraction of labels (analyst mistakes). The training set
+    uses 8%; the gold set uses 0, so it holds the labels the rules intend.
+    """
     fake = Faker()
-    Faker.seed(SEED)
-    rng = np.random.default_rng(SEED)
+    Faker.seed(seed)
+    rng = np.random.default_rng(seed)
 
     vendors = []
     for vendor_id in range(1, N_VENDORS + 1):
@@ -30,28 +38,28 @@ def generate_dataset() -> pd.DataFrame:
             }
         )
 
-    vendor_ids = rng.integers(1, N_VENDORS + 1, size=N_INVOICES)
+    vendor_ids = rng.integers(1, N_VENDORS + 1, size=n_invoices)
     vendor_lookup = {v["vendor_id"]: v for v in vendors}
 
-    n_night = int(round(N_INVOICES * NIGHT_FRAC))
-    is_night = np.zeros(N_INVOICES, dtype=bool)
-    night_idx = rng.choice(N_INVOICES, size=n_night, replace=False)
+    n_night = int(round(n_invoices * NIGHT_FRAC))
+    is_night = np.zeros(n_invoices, dtype=bool)
+    night_idx = rng.choice(n_invoices, size=n_night, replace=False)
     is_night[night_idx] = True
 
-    hours = np.empty(N_INVOICES, dtype=int)
+    hours = np.empty(n_invoices, dtype=int)
     day_hours = np.arange(8, 19)
     night_hour_list = np.array(sorted(NIGHT_HOURS))
     hours[is_night] = rng.choice(night_hour_list, size=n_night)
-    hours[~is_night] = rng.choice(day_hours, size=N_INVOICES - n_night)
+    hours[~is_night] = rng.choice(day_hours, size=n_invoices - n_night)
 
-    n_mismatch = int(round(N_INVOICES * LINES_MISMATCH_FRAC))
-    is_mismatch = np.zeros(N_INVOICES, dtype=bool)
-    mismatch_idx = rng.choice(N_INVOICES, size=n_mismatch, replace=False)
+    n_mismatch = int(round(n_invoices * LINES_MISMATCH_FRAC))
+    is_mismatch = np.zeros(n_invoices, dtype=bool)
+    mismatch_idx = rng.choice(n_invoices, size=n_mismatch, replace=False)
     is_mismatch[mismatch_idx] = True
 
     rows = []
     seen_vendors: set[int] = set()
-    for i in range(N_INVOICES):
+    for i in range(n_invoices):
         vid = int(vendor_ids[i])
         v = vendor_lookup[vid]
         amount = float(v["typical_amount"] * rng.lognormal(mean=0.0, sigma=0.25))
@@ -95,7 +103,7 @@ def generate_dataset() -> pd.DataFrame:
         | (df["hour"] > 22)
     ).astype(int)
 
-    n_flip = int(round(N_INVOICES * LABEL_NOISE_FRAC))
+    n_flip = int(round(n_invoices * label_noise))
     flip_idx = rng.choice(df.index.to_numpy(), size=n_flip, replace=False)
     risk = risk.copy()
     risk.loc[flip_idx] = 1 - risk.loc[flip_idx]
@@ -117,8 +125,15 @@ def generate_dataset() -> pd.DataFrame:
 
 
 def main() -> None:
-    df = generate_dataset()
-    out_path = Path("data") / "invoices.csv"
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--n", type=int, default=N_INVOICES)
+    parser.add_argument("--seed", type=int, default=SEED)
+    parser.add_argument("--label-noise", type=float, default=LABEL_NOISE_FRAC)
+    parser.add_argument("--out", default="data/invoices.csv")
+    args = parser.parse_args()
+
+    df = generate_dataset(args.n, args.seed, args.label_noise)
+    out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_path, index=False)
     print(f"shape: {df.shape}")
