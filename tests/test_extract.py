@@ -3,7 +3,9 @@ from pathlib import Path
 import pytest
 
 from src.eval.evaluate_extract import evaluate
-from src.extract.gemini import GeminiExtractor, load_prompt
+from src.extract.extractor import Extractor, load_prompt, make_backend
+from src.extract.gemini import GeminiBackend
+from src.extract.ollama import OllamaBackend
 from src.extract.pages import filter_pdf
 from tests.fakes import GOLD_DIR, FakeGeminiClient, gold_labels
 
@@ -17,7 +19,7 @@ def test_page_filter_keeps_exactly_the_invoice_page_on_the_gold_set():
 
 def test_extractor_sends_structured_output_request_and_counts_tokens():
     client = FakeGeminiClient()
-    extractor = GeminiExtractor(client, prompt_version="v2")
+    extractor = Extractor(GeminiBackend(client), prompt_version="v2")
     label = gold_labels()[0]
     result = extractor.extract((GOLD_DIR / "docs" / f"{label['doc_id']}.pdf").read_bytes())
 
@@ -37,7 +39,7 @@ def test_unknown_prompt_version_is_rejected():
 
 
 def test_evaluate_on_gold_with_perfect_fake_reports_full_marks_and_cost():
-    out = evaluate(GeminiExtractor(FakeGeminiClient()), GOLD_DIR)
+    out = evaluate(Extractor(GeminiBackend(FakeGeminiClient())), GOLD_DIR)
     assert out["report"]["micro"]["precision"] == 1.0
     assert out["report"]["micro"]["recall"] == 1.0
     assert out["usage"]["docs_ok"] == 40
@@ -46,6 +48,36 @@ def test_evaluate_on_gold_with_perfect_fake_reports_full_marks_and_cost():
 
 
 def test_evaluate_detects_a_worse_extractor():
-    out = evaluate(GeminiExtractor(FakeGeminiClient(corrupt={"currency": "€"})), GOLD_DIR)
+    out = evaluate(Extractor(GeminiBackend(FakeGeminiClient(corrupt={"currency": "€"}))), GOLD_DIR)
     assert out["report"]["fields"]["currency"]["precision"] == 0.0
     assert out["report"]["micro"]["precision"] < 0.85
+
+
+def test_ollama_backend_sends_the_json_schema_and_reads_token_counts():
+    import json
+
+    label = gold_labels()[3]
+    sent = {}
+
+    def fake_post(url, payload, timeout):
+        sent.update(url=url, payload=payload)
+        answer = {k: label[k] for k in ("vendor_name", "invoice_number", "invoice_date", "total_amount", "currency")}
+        return {"message": {"content": json.dumps(answer)}, "prompt_eval_count": 321, "eval_count": 45}
+
+    extractor = Extractor(OllamaBackend(model="qwen2.5:7b", host="http://gpu-box:11434", post=fake_post))
+    result = extractor.extract((GOLD_DIR / "docs" / f"{label['doc_id']}.pdf").read_bytes())
+
+    assert sent["url"] == "http://gpu-box:11434/api/chat"
+    assert sent["payload"]["format"]["properties"].keys() >= {"vendor_name", "total_amount"}
+    assert sent["payload"]["options"] == {"temperature": 0}
+    assert result.fields["total_amount"] == label["total_amount"]
+    assert (result.usage.prompt_tokens, result.usage.output_tokens) == (321, 45)
+    assert result.model == "qwen2.5:7b"
+
+
+def test_backend_is_chosen_by_env(monkeypatch):
+    monkeypatch.setenv("EXTRACT_BACKEND", "ollama")
+    monkeypatch.setenv("OLLAMA_MODEL", "llama3.2:3b")
+    assert make_backend().model == "llama3.2:3b"
+    with pytest.raises(ValueError):
+        make_backend("openai")

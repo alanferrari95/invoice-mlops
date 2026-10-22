@@ -46,8 +46,10 @@ def query_features(project: str, source_table: str, client=None) -> pd.DataFrame
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--project", default="invoice-mlops")
-    parser.add_argument("--source-table", default="invoice-mlops.invoice_mlops.invoices")
+    from src import settings
+
+    parser.add_argument("--project", default=settings.PROJECT)
+    parser.add_argument("--source-table", default=settings.INVOICES_TABLE)
     parser.add_argument("--out", default="data/features.csv")
     args = parser.parse_args()
     df = query_features(args.project, args.source_table)

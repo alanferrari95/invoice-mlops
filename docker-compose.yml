@@ -1,0 +1,48 @@
+# Run the whole serving side on a laptop: no GCP account needed.
+#
+#   docker compose up --build                       # /score; /extract per EXTRACT_BACKEND
+#   docker compose --profile ollama up --build      # + a local Ollama for /extract
+#   docker compose exec ollama ollama pull qwen2.5:7b
+#
+# Settings come from .env (copy .env.example). GPU for Ollama: docker-compose.gpu.yml.
+services:
+  train:
+    build:
+      context: .
+      dockerfile: Dockerfile.train
+    command: ["--data-uri", "/app/data/invoices.csv", "--model-dir", "/models"]
+    volumes:
+      - ./data:/app/data:ro
+      - models:/models
+
+  api:
+    build: .
+    depends_on:
+      train:
+        condition: service_completed_successfully
+    ports:
+      - "8080:8080"
+    environment:
+      MODEL_URI: /models/model.joblib
+      MODEL_VERSION: local
+      LOG_SINK: ${LOG_SINK:-stdout}
+      EXTRACT_BACKEND: ${EXTRACT_BACKEND:-off}
+      PROMPT_VERSION: ${PROMPT_VERSION:-v2}
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+    volumes:
+      - models:/models:ro
+
+  ollama:
+    image: ollama/ollama:latest # pin a version for anything beyond a local demo
+    profiles: ["ollama"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+
+volumes:
+  models:
+  ollama:

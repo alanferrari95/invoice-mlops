@@ -2,7 +2,6 @@ locals {
   project       = var.project_id
   region        = var.region
   image_repo    = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.images.repository_id}"
-  risk_model_id = var.risk_model_id
   work_member   = "serviceAccount:${google_service_account.work.email}"
 }
 

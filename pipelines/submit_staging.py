@@ -5,24 +5,25 @@ Staging runs exercise the new code end to end and register the result under the
 """
 
 import os
+import sys
+from pathlib import Path
 
 from google.cloud import aiplatform
 
-PROJECT = "invoice-mlops"
-LOCATION = "europe-west4"
-PIPELINE_ROOT = "gs://invoice-mlops-artifacts/pipeline-root"
-TEMPLATE = os.getenv("PIPELINE_YAML", "pipelines/risk_train_eval.yaml")
-RUNTIME_SA = "invoice-mlops-work@invoice-mlops.iam.gserviceaccount.com"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src import settings  # noqa: E402
 
-aiplatform.init(project=PROJECT, location=LOCATION)
+TEMPLATE = os.getenv("PIPELINE_YAML", "pipelines/risk_train_eval.yaml")
+
+aiplatform.init(project=settings.PROJECT, location=settings.REGION)
 
 job = aiplatform.PipelineJob(
     display_name="risk-train-eval-staging",
     template_path=TEMPLATE,
-    pipeline_root=PIPELINE_ROOT,
+    pipeline_root=settings.PIPELINE_ROOT,
     parameter_values={"alias": "staging"},
     labels={"pipeline": "risk-train-eval", "trigger": "merge", "commit": os.getenv("SHORT_SHA", "local").lower()},
     enable_caching=True,
 )
-job.submit(service_account=RUNTIME_SA)
+job.submit(service_account=settings.WORK_SA)
 print(job.resource_name)

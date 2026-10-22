@@ -22,13 +22,14 @@ import joblib
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src import settings  # noqa: E402
 from src.eval.gate import gold_metrics  # noqa: E402
 
-PROJECT = "invoice-mlops"
-LOCATION = "europe-west4"
-IMAGE = f"{LOCATION}-docker.pkg.dev/{PROJECT}/invoice-mlops/train:latest"
-SA = f"invoice-mlops-work@{PROJECT}.iam.gserviceaccount.com"
-STAGING = "gs://invoice-mlops-artifacts/staging"
+PROJECT = settings.PROJECT
+LOCATION = settings.REGION
+IMAGE = f"{settings.IMAGE_REPO}/train:latest"
+SA = settings.WORK_SA
+STAGING = f"gs://{settings.ARTIFACTS_BUCKET}/staging"
 DEFAULT_CONFIGS = ["100:4", "200:3", "50:6"]
 
 
@@ -36,7 +37,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--configs", nargs="+", default=DEFAULT_CONFIGS, help="n_estimators:max_depth")
     parser.add_argument("--experiment", default="risk-hparams")
-    parser.add_argument("--data-uri", default="gs://invoice-mlops-raw/raw/invoices.csv")
+    parser.add_argument("--data-uri", default=f"gs://{settings.RAW_BUCKET}/raw/invoices.csv")
     parser.add_argument("--gold", default="data/gold/risk_gold.csv")
     parser.add_argument("--machine-type", default="e2-standard-4")
     parser.add_argument("--image", default=IMAGE)
@@ -62,7 +63,7 @@ def main() -> None:
     for config in args.configs:
         n_estimators, max_depth = (int(x) for x in config.split(":"))
         run_name = f"n{n_estimators}-d{max_depth}-{stamp}"
-        model_dir = f"gs://invoice-mlops-artifacts/models/exp-{run_name}"
+        model_dir = f"gs://{settings.ARTIFACTS_BUCKET}/models/exp-{run_name}"
 
         job = aiplatform.CustomJob(
             display_name=f"risk-train-{run_name}",

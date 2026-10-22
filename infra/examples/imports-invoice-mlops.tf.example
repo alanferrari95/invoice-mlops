@@ -1,8 +1,7 @@
-# Resources that existed before Terraform covered them (created by hand or by gcloud in
-# weeks 3-11). They are imported, never recreated. The two buckets, the work SA and its
-# bucket grants were created by Terraform in week 0 and are already in the state.
-#
-# In a fresh project delete this file: every resource is then created from scratch.
+# Only for the original `invoice-mlops` project, where these resources were created by hand
+# or by gcloud in weeks 3-11 before Terraform covered them. Copy it to infra/imports.tf there
+# so `terraform plan` imports them instead of trying to create duplicates.
+# A fresh project does not need it: every resource is created from scratch.
 
 import {
   to = google_artifact_registry_repository.images

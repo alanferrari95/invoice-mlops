@@ -4,9 +4,9 @@
 #   ./scripts/registry_version.sh staging
 set -euo pipefail
 ALIAS="${1:-production}"
-MODEL_ID="${MODEL_ID:-429981614227849216}"
+MODEL_ID="${MODEL_ID:-risk-classifier}"
 REGION="${REGION:-europe-west4}"
-PROJECT="${PROJECT:-invoice-mlops}"
+PROJECT="${PROJECT:-${GOOGLE_CLOUD_PROJECT:-$(gcloud config get-value project 2>/dev/null)}}"
 
 gcloud ai models list-version "$MODEL_ID" --project="$PROJECT" --region="$REGION" --format=json 2>/dev/null \
   | python3 -c '

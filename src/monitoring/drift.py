@@ -21,6 +21,8 @@ import numpy as np
 import pandas as pd
 from scipy.stats import ks_2samp
 
+from src import settings
+
 FEATURE_NAMES = [
     "amount",
     "lines_sum",
@@ -29,13 +31,13 @@ FEATURE_NAMES = [
     "vendor_avg_amount",
     "amount_vs_avg_ratio",
 ]
-PREDICTIONS_TABLE = "invoice-mlops.invoice_mlops.predictions"
+PREDICTIONS_TABLE = settings.PREDICTIONS_TABLE
 EPS = 1e-4
 
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument("--reference-uri", default="gs://invoice-mlops-raw/raw/invoices.csv")
+    parser.add_argument("--reference-uri", default=f"gs://{settings.RAW_BUCKET}/raw/invoices.csv")
     parser.add_argument("--model-uri", default=os.getenv("MODEL_URI", "models/model.joblib"),
                         help="used when --registry-model is not set")
     parser.add_argument("--registry-model", default=os.getenv("REGISTRY_MODEL", ""),

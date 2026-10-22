@@ -2,7 +2,8 @@
 # Load the raw synthetic invoices (no derived features) into BigQuery.
 # The pipeline computes features from this table with src/features/features.sql.
 set -euo pipefail
-TABLE="${TABLE:-invoice-mlops:invoice_mlops.invoices}"
+PROJECT="${PROJECT:-${GOOGLE_CLOUD_PROJECT:-$(gcloud config get-value project 2>/dev/null)}}"
+TABLE="${TABLE:-${PROJECT}:invoice_mlops.invoices}"
 SRC="${1:-data/invoices.csv}"
 TMP="$(mktemp --suffix=.csv)"
 
