@@ -143,7 +143,7 @@ resource "google_cloud_run_v2_job_iam_member" "scheduler_runs" {
 
 resource "google_cloud_scheduler_job" "drift_daily" {
   name        = "drift-check-daily"
-  region      = local.region
+  region      = var.scheduler_region
   description = "Daily drift check on the last 24h of predictions"
   schedule    = "0 6 * * *"
   time_zone   = "Europe/Madrid"
@@ -161,7 +161,7 @@ resource "google_cloud_scheduler_job" "drift_daily" {
 
 resource "google_cloud_scheduler_job" "pipeline_weekly" {
   name        = "risk-pipeline-weekly"
-  region      = local.region
+  region      = var.scheduler_region
   description = "Weekly continuous-training run of risk-train-eval"
   schedule    = "0 8 * * 1"
   time_zone   = "Europe/Madrid"

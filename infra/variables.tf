@@ -31,3 +31,9 @@ variable "api_min_instances" {
   type        = number
   default     = 0
 }
+
+variable "scheduler_region" {
+  description = "Cloud Scheduler location (not every region hosts Cloud Scheduler)"
+  type        = string
+  default     = "europe-west4"
+}
