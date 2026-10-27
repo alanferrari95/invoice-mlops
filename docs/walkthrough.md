@@ -110,7 +110,7 @@ Contents: [1 Data](#1-data-and-labels) · [2 Training](#2-training) · [3 Featur
 
 ## 10. Continuous training: Scheduler and launcher
 
-**What.** `src/launcher.py` runs as the `risk-pipeline-launcher` Cloud Run Job. Cloud Scheduler starts it every Monday at 08:00 (`infra/monitoring.tf`). It submits the compiled template from GCS with alias `production`.
+**What.** `src/launcher.py` runs as the `risk-pipeline-launcher` Cloud Run Job. Cloud Scheduler starts it every Monday at 08:00 (`infra/monitoring.tf`; not applied yet, so in the reference project the weekly trigger is still a paused Vertex AI pipeline schedule, see [evidence](evidence.md#state-of-the-reference-project-on-2026-10-22)). It submits the compiled template from GCS with alias `production`.
 
 **Guards.** Never submit while a `risk-train-eval` run is queued or running. After a drift-triggered run, wait 24 h before the next drift-triggered one.
 
@@ -174,7 +174,7 @@ Contents: [1 Data](#1-data-and-labels) · [2 Training](#2-training) · [3 Featur
 
 **Ownership split.** Terraform owns existence, identity, scaling and IAM. Cloud Build owns what changes on every release (image, pinned versions, traffic). The Cloud Run resource ignores those fields so the two never fight.
 
-**Identities.** `work` (runtime), `build` (deploy, `run.developer`, no IAM rights), `ci` (logs only), `scheduler` (start two jobs). No JSON keys anywhere: workloads get short-lived tokens from the metadata server, humans use `gcloud auth login`. The Compute Engine default SA's project `Editor` is removed.
+**Identities.** `work` (runtime), `build` (deploy, `run.developer`, no IAM rights), `ci` (logs only), `scheduler` (start two jobs). No JSON keys anywhere: workloads get short-lived tokens from the metadata server, humans use `gcloud auth login`. Terraform removes the Compute Engine default SA's project `Editor`; until `apply` runs, the reference project still has that grant and its triggers run as that SA ([evidence](evidence.md#state-of-the-reference-project-on-2026-10-22)).
 
 **Interview questions.**
 - *"Why not one SA for everything?"* Blast radius. A leaked PR build should not deploy; the scheduler should not read data.
