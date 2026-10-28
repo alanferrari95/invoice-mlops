@@ -26,6 +26,8 @@ Checked on 2026-10-22 on the [Vertex AI generative AI pricing page](https://clou
 | until 2026-12-31 (launch price) | USD 0.825 | USD 4.125 |
 | from 2027-01-01 | USD 1.65 | USD 8.25 |
 
+Other tables, such as the one in agent-harness, list USD 0.75 / 3.75 for the same model. That is the Gemini Developer API rate (ai.google.dev), a different endpoint with no EU processing guarantee, so the two numbers do not contradict each other.
+
 `src/extract/pricing.py` holds these numbers. `python -m src.eval.evaluate_extract` turns the token counts it measures into `usd_per_1000_docs` for both periods. It has not been run against Gemini, so there is no cost per 1,000 documents yet. With `--backend ollama` the token cost is zero; the cost is the hardware.
 
 ## Measuring the month

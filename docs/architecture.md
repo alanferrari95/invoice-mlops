@@ -2,6 +2,8 @@
 
 One repository, one GCP project, one region (`europe-west4`), two engines that share the API, the logging and the release process.
 
+This document describes the design as written in the code and in Terraform. The reference project has not had `terraform apply`, so its live state differs in places: on 2026-10-22 the Cloud Build triggers still ran as the Compute Engine default service account, the weekly trigger was a paused Vertex AI pipeline schedule (the Cloud Scheduler API was not enabled), and the Model Registry held one version with the alias `default`. [evidence.md](evidence.md#state-of-the-reference-project-on-2026-10-22) lists what actually exists.
+
 | | Engine A: risk model | Engine B: field extraction |
 |---|---|---|
 | Discipline | classic MLOps: a model we train | LLMOps: a model we prompt |
@@ -80,7 +82,7 @@ Terraform defines every resource ([infra/](../infra/README.md)). Four service ac
 | `invoice-mlops-ci` | write build logs | everything else: PR builds run code from any branch |
 | `invoice-mlops-scheduler` | start the two Cloud Run Jobs | everything else |
 
-The Compute Engine default service account gets project `Editor` by default. No trigger uses it any more, and Terraform removes that grant.
+The Compute Engine default service account gets project `Editor` by default. In this design no trigger uses it, and Terraform removes that grant. Until `terraform apply` runs, the reference project still has the grant and its triggers still run as that account ([evidence](evidence.md#state-of-the-reference-project-on-2026-10-22)).
 
 ## 7. Why these choices
 
